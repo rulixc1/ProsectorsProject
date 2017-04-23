@@ -1,0 +1,390 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_storage.script 
+ Description: Shell of memory stor system
+ Copyright  : 2017 © Prosectors Project
+ Authors    : Карлан, Nazgool
+--]] ----------------------------------------------------------------------------------------------
+
+--[[
+update by Karlan (18.07.16):
+1 перевел сохранение фраз диалогов
+2 флаг обыска перенес из биндера в стораж и сохраняю прямо здесь, так же добавил такой флаг и торговцам (правда зачем?)
+3 все скрипты с функциями переведены под стораж, в связи с чем удалил временный флаг, который вводил для постепенного перевода всех скриптов на этот стораж
+4 переписал механизмы инициализации, сохранения и загрузки чтобы можно было сохранять серверные данные
+5 сделал коллбек в движке для корректной работы с данными, без коллбека при загрузке холодных сейвов падала игра
+6 из TODO только сохранение метатаблиц сделать
+update by Karlan (19.07.16):
+1 перевел на сервере свои сохранения, вычистил из файлов функции прямой работы с хранилищем, теперь ВСЯ работа только через эту систему!!!
+2 написал цикл для сохранения фраз диалогов, теперь при добавлении новых типов диалогов они подцепятся системой и будут сохранятся АВТОМАТИЧЕСКИ
+update by Karlan (08.08.16):
+1 перевел серверную часть обратно на пакеты, так правильнее ;), в связи с этим хранилищем нельзя пользоваться в скриптах: registrator_class, m_gulag, se_*, gulag_* 
+2 написал оболочки для файлов, где неприменима система автоматического сохранения (это позволяет полностью изолировать этот модуль от всего), так же они позволяют без проблем создавать эмуляцию сейва и лоада в ООП-конструкциях для каждого объекта
+update by Karlan (17.10.16):
+1 сделал эмуляцию сохранения на сервере, автоматически сохраняется только pstor, кастомные данные можно записывать руками из разных мест, переписывать там пстор не рекомендуется(!), в дальнейшем все ключи перекроются из пстора стоража который будет на момент выхода объекта в оффлайн
+2 хранилище умеет сливать кастомные данные в один массив, которые представляются в виде массивов (возможно стоит заливать в текущий массив все нетабличные входные данные?)
+
+Karlan->ALL:
+Автоматика работает собирая все скрипты которые есть (кроме "верхних"), далее дергает сейв и лоад функции с передачей пакета созданного под этот скрипт, в нем НЕ НАДО сохранять напрямую, это вызовет искуственно созданную ошибку, которая  следит за тем, используется ли сохранение в этом модуле вообще, если ошибка появляется - значит не используется и надо удалять. Также ошибка появляется при сохранении напрямую. Сохранение напрямую надо вообще искоренять и переводить даже биндеры на автоматику.
+Заметил один баг, если мы напрямую будем сохранять таблицу еще хотябы через одну таблицу, то она как-то неверно сохраняется и на выходе получаем избитые данные и ругань систем, в связи с чем я настоятельно всем рекомендую сохранять вложенные таблицы через поля.
+Метатаблицы не сохраняются!!! TODO:
+по реглменту еще должен и пакеты писать, но пока не пишет, вот и вопрос а нужны ли они когда юзердату и так можно в таблицу забить, а с таблицами всяко удобнее чем с пакетом работать, ну а объектам просто методы из движка давать чтобы вообще не возится, это же куда лучше
+]]
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local game_difficulty_by_num = {
+    [0] = "gd_novice",
+    [1] = "gd_stalker",
+    [2] = "gd_veteran",
+    [3] = "gd_master",
+}
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = true
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// распаковываем
+--//-----------------------------------------------------------------
+local function unpack_xstore(x)
+    local time = x.unique_ctime_key_prosectors --// Karlan: ну вот чтоб уж совсем наверняка :)
+    local vec  = x.unique_vector_key_prosectors
+    if time then
+        time = time()
+        local c_time = game.CTime()
+        c_time:set(time[1], time[2], time[3], time[4], time[5], time[6], time[7])
+        return c_time
+    elseif vec then
+        vec = vec()
+        return vector():set(vec.x, vec.y, vec.z)
+    --elseif -- что-то ещё
+    end
+    local t = {}
+    for k, v in pairs(x) do
+    --// Карлан->ALL: поясняю: в гораздо меньшем проценте случаев ключи-числа сохраняются как строки, поэтому мы здесь сразу переводим в число, но если ключ должен оставаться строкой, но переводится в число, то на загрузке данных модуля это надо учитывать и переводить обратно в строку (если значение ключа конкатенируется с чем-то, то все равно, луа сам переведет его в строку)
+        k = tonumber(k) or k -- беда с сохранением юзердаты(или только CTime???). При сохранении ключ-число становить строкой. Нужно что-то делать.
+        t[k] = is_userdata(v) and unpack_xstore(v()) or v
+    end
+    return t
+end
+--//-----------------------------------------------------------------
+--// пакуем
+--//-----------------------------------------------------------------
+local function pack_xstore(x)
+    if is_userdata(x) then
+        if is_CTime(x) then
+            return {unique_ctime_key_prosectors = {x:get()}}
+        elseif is_vector(x) then
+            return {unique_vector_key_prosectors = {x.x, x.y, x.z}}
+        --elseif -- что-то ещё
+        end
+        warning('!WARN: variable dont save! storage system doesnt supported current userdata, %s', x)
+        return nil --// Karlan->Nazgool: возможно здесь нужно поставить abort, так как если до сюда дошли, то это фатальная ошибка, получается юзер предполагает сохранить какую-то юзердату которую мы не в состоянии "взять", и "сохраняем" nil, и утаиваем это от юзера, это преступление :) на выходе помоему даже поля такого быть не должно согласно движковым механизмам, но надо уточнить
+    end
+    
+    local t = {}
+    for k, v in pairs(x) do
+        v = (is_userdata(v) or is_table(v)) and pack_xstore(v) or v
+        t[k] = v
+    end
+    return t
+end
+--//-----------------------------------------------------------------
+--// шайтан-система
+--//-----------------------------------------------------------------
+--// todo: Karlan->Karlan: есть два вида модулей, одни сохраняют всегда, другие только когда им надо, вот для вторых надо что-то придумать и не ругатся на них
+--// todo: Karlan->Karlan: доделать ключ new_name, чтобы можно было без гемора переименовывать модуль по ходу игры
+local function call_save_load(_type, _dir)
+    for file in lfs.dir(_dir) do
+        if file ~= "." and file ~= ".." then
+            local name, ext = file:match('(.*)%.(.-)$')
+            if not name and not ext then --// Karlan: вдруг это папка?
+                call_save_load(_type, _dir .. '/' .. file)
+            else
+            local func = _G[name] and _G[name][_type]
+            local is_prosectors = load ~= func --// Karlan->Nazgool: это необходимо для отделения модулей, которые РЕАЛЬНО имеют наш метод, и который имеют метод от луабинда (так как всякие функции типа loadsuperstorage мне делать ну ваще нафиг неохота), это мы не учли и у меня при вырезании флага игра заваливалась, так как в луабинде это дефолтное поле
+            if func and is_function(func) then
+                if _type == 'save' then
+                    if not is_table(_G.storage[name]) then --// todo: Karlan->Karlan: надо эту функцию еще для net_spawn заточить чтобы на сейве вот этот блок выкинуть а сразу писать в существующую таблицу
+                        log('module [%s] created storage and sucsess connected to prosectors memory system', name)
+                        _G.storage[name] = {}
+                    end
+                    func(_G.storage[name])
+                    log('execute function [%s] by module [%s]', _type, name)
+                end
+                if _type == 'load' and is_prosectors then
+                    if is_table(_G.storage[name]) then --// предполагается что если решили загрузить, то до этого точно что-то сохраняли
+                        if not next(_G.storage[name]) and not PROSECTORS_DEBUG then --// remove this hack
+                    --// todo: Karlan->Karlan: написать флаг первого юза сейвов модуля и убрать отсюда этот варнинг-костыль!
+                            warning('НЕТ ДАННЫХ! Хранилище в модуле [%s.%s] не используется, либо метод save еще ниразу не отработал (в таком случае все в порядке)!', name, ext)
+                        end
+                        local buff = _G.storage[name] --// локальный буффер лучше сделать сразу, так как модулю не всегда нужен будет глобальный
+                        _G.storage[name] = {} 
+                        func(buff) --// в лоаде по требованию надо будет делать буффер глобальной переменной чтобы можно было читать в любом месте (см. пример)
+                        log('execute function [%s] by module [%s]', _type, name)
+                    else
+                        abort('call_save_load:load:{func}:[%s] has CORRUPT TABLE, got %s', name, type(_G.storage[name]))
+                    end
+                end
+            elseif not func then
+                if _type == 'load' then
+                    if is_table(_G.storage[name]) then --// Karlan->Karlan: этот блок абсолютно лишен смысла, так как name здесь всегда будет nil, поэтому надо заводить какой то массив
+                        --// todo: Karlan->Karlan: сделать счетчик холодных загрузок
+                        if _G.storage[name].vanish then
+                            _G.storage[name] = nil
+                        end
+                    else
+                        abort('call_save_load:load:{not func}:[%s] has CORRUPT TABLE, got %s', name, type(_G.storage[name]))
+                    end
+                end
+            end
+            end
+        end
+    end
+end
+--//-----------------------------------------------------------------
+--// всякие функции для работы со всяким вроде как 100% нужным барахлом везде всем и всегда
+--//-----------------------------------------------------------------
+local function save_actor_pstor() --// в акторе сохраняется только пстор, для него и сделаем отдельные конструкции
+    if not is_table(storage.storage_objects) then storage.storage_objects = {} end
+    storage.storage_objects[0] = {} --// у актора сохраняется только пстор, так что здесь без страха можно чистить
+    storage.storage_objects[0].pstor = db.storage[0].pstor
+end
+
+local function load_actor_pstor()
+    if is_table(storage.storage_objects) and next(storage.storage_objects) then
+        db.storage[0].pstor = storage.storage_objects[0].pstor
+    end
+end
+
+--// эти функции либо оставлять глобальными, либо делать локальными и вписывать кучу ивентов, нужно обсудить и решить
+local function clear_logic_object(obj) --// Karlan->Nazgool: поясню зачем сделан, функции у нас сейчас глобальные, так что может быть несанкционированный доступ и, как следствие, захламление хранилища неудаляемыми переменными (до поры до времени, пока айди не затрется иным объектом), а это такой оберег на запущенный случай, у меня конечно тело функции сейчас никогда не отработает :)
+    if is_table(storage.storage_objects) and next(storage.storage_objects) then
+        local st_obj = storage.storage_objects[obj and obj:id()]
+        if st_obj then
+            storage.storage_objects[obj and obj:id()] = {}
+        end
+    end
+end
+
+local function clear_data_object(obj)
+    if is_table(storage.data_objects) and next(storage.data_objects) then
+        local st_obj = storage.data_objects[obj and obj:id()]
+        if st_obj then
+            storage.data_objects[obj and obj:id()] = {}
+        end
+    end
+end
+
+local function save_logic_object(obj)
+    if not is_table(storage.storage_objects) then storage.storage_objects = {} end --// заводим массив под объекты
+    local st_obj = {} --// buffer
+    local st = db.storage[obj and obj:id()]
+    local dialog = manager_dialog.selected_phrase_by_id
+    --// TREASURE (поюзали труп)
+    st_obj.treasure_processed = st.treasure_processed --// Karlan: оставлено для торговцев, но надо переделать и всех привести к единому виду
+    --// STORAGE
+    --// or "" тут видимо обязательно, так как на загрузке тупит простановка ключей, и из-за этого будет косячить конфигуратор схем
+    st_obj.ini_filename = st.ini_filename or ""
+    st_obj.section_logic = st.section_logic or ""
+    st_obj.active_section = st.active_section or ""
+    st_obj.gulag_name = st.gulag_name or ""
+    st_obj.activation_time = math.is_positive(st.activation_time) and (st.activation_time - time_global()) or 0
+    st_obj.activation_game_time = st.activation_game_time
+    st_obj.pstor = st.pstor or {}
+    --// DIALOGS
+    st_obj.dialogs = {}
+    for k,v in pairs(dialog) do
+        if obj:is_monster() then break end --/> выходим из цикла, если монстр
+        for kk,vv in pairs(v) do
+            st_obj.dialogs[k] = (kk == obj:id()) and vv.phrase or nil
+        end
+    end
+    --// EVENT
+    if st.active_scheme then xr_logic.issue_event(obj, db.storage[obj:id()][st.active_scheme], "save", st_obj) end
+    --// MEMORY
+    storage.storage_objects[obj and obj:id()] = st_obj
+end
+--// Karlan->ALL: это эмуляция записи в серверный объект, удаленно хранит все нужные данные с возможностью записать любые другие в момент записи, на самом же деле к серверным объектам отношения никакого не имеет и использоваться может только когда существует хранилище
+local function save_data_object(obj, data, rem)
+    local sobj = sim:object(obj:id()) --// thx Malandrinus
+    if not sobj then clear_data_object(obj) return end
+    if not is_table(storage.data_objects) then storage.data_objects = {} end
+    local st_obj = {}
+    local st = db.storage[obj and obj:id()]
+    --// STORAGE
+    st_obj.pstor = st.pstor or {}
+    --// CUSTOM DATA
+    if is_table(data) and is_table(st_obj.data) then --// уменьшит головную боль при вызове из нескольких мест
+        data = table.merge(st_obj.data, data) --// новая главнее старой
+    end
+    if (data~=nil) then
+        st_obj.data = data --// data не должна быть userdata (за исключением тех, которые хранилище может разобрать) или thread
+    else
+        if rem then --// из-за кучи потенциально несуществубщих значений тернарный оператор попросту сыпется, так что я сделал в явном виде
+            st_obj.data = nil
+        end
+    end
+    --// MEMORY
+    storage.data_objects[obj and obj:id()] = st_obj
+end
+
+local function load_logic_object(obj)
+    if is_table(storage.storage_objects) and next(storage.storage_objects) then
+        local st_obj = storage.storage_objects[obj and obj:id()]
+        if not st_obj then --// Karlan: отладка, ловит типы объектов, которые повешаны на фейковые коллбеки и для которых я по невнимательности не написал флаги 
+            return warning('st_obj is %s for object <%s>', type(st_obj), obj)
+        end
+        local st = db.storage[obj and obj:id()]
+        local dialog = manager_dialog.selected_phrase_by_id
+        --// TREASURE
+        st.treasure_processed = st_obj.treasure_processed
+        --// STORAGE
+        st.loaded_ini_filename = st_obj.ini_filename ~= "" and st_obj.ini_filename or nil
+        st.loaded_section_logic = st_obj.section_logic ~= "" and st_obj.section_logic or nil
+        st.loaded_active_section = st_obj.active_section ~= "" and st_obj.active_section or "nil"
+        st.loaded_gulag_name = st_obj.gulag_name ~= "" and st_obj.gulag_name or nil
+        if st_obj.activation_time~=nil and math.is_negative(st_obj.activation_time) then --// Karlan: ну вот такая эпопея, да, некоторые обделены
+            st.activation_time = st_obj.activation_time + time_global()
+        else
+            st.activation_time = time_global()
+        end
+        st.activation_game_time = st_obj.activation_game_time
+        st.pstor = is_table(st_obj.pstor) and st_obj.pstor or {}
+        --// DIALOGS
+        if is_table(st_obj.dialogs) then --// у монстров st_obj.dialogs == nil
+            for k,v in pairs(st_obj.dialogs) do
+                dialog[k][obj:id()] = v and {phrase = v, count = 0} or nil
+            end
+            manager_dialog.selected_phrase_by_id = dialog
+        end
+        --// MEMORY
+        storage.storage_objects[obj and obj:id()] = {}
+    end
+end
+--// Karlan->ALL: это эмуляция чтения из серверного объекта прямиком в pstor :)
+--// Karlan->Nazgool: тут идея следующая, мы не вмешиваемся в оригинальные алгоритмы сохранения, а пытаемся дописать недостающие данные в псторе, то есть если какие-то данные уже есть в псторе, то мы их не трогаем, также я счел правильным дать записать какие-то кастомные данные в объект (например некоторые характеристики типа скорострельности для оружия)
+local function load_data_object(obj) --// так же может использоваться как add_pstor, но только в случае предварительного сохранения хоть каких-то данных :)
+    if is_table(storage.data_objects) and next(storage.data_objects) then
+        local st_obj = storage.data_objects[obj and obj:id()]
+        if not st_obj then return end --// это в любом случае тут выбьется если объект вышел в онлайн но еще ниразу не выходил в оффлайн, так что даже ругатся не надо :)
+        local st = db.storage[obj and obj:id()]
+        if not st then --// Karlan: поскольку место вызова не очевидно, то мы не можем знать есть (уже) объект в стораже, или еще нет, поэтому его туда надо, если что, добавить, данное справедливо звучит лишь для тех объектов, которые не имеют биндеров, либо их биндеры не работают с db.storage, ну или вы решили получить данные в reload =D
+            db.storage[obj and obj:id()] = {}
+        end
+        --// STORAGE
+        if is_table(st.pstor) then
+            if is_table(st_obj.pstor) then
+                st.pstor = table.merge(st_obj.pstor, st.pstor) --// сливаем две таблицы в одну
+            end
+        else
+            st.pstor = is_table(st_obj.pstor) and st_obj.pstor or {}
+        end
+        --// CUSTOM DATA
+        st.data = (st_obj.data~=nil) and st_obj.data or nil --// WARNING! data читается в поле data стоража, с этим осторожнее, так как может затерется в не подходящий момент, рекомендуется уводить ее из стоража в какой-то иной буфер, затем в стораже зачищать это поле
+        --// MEMORY
+        storage.data_objects[obj and obj:id()] = {}
+    end
+end
+--//------------------------------------------------------------------------------------------------
+--// оболочки --// Karlan->Nazgool: я согласен с тем, что нужны такие оболочки, только я их сделал по направлению своей задумки
+--//------------------------------------------------------------------------------------------------
+local function add_data(module, key)
+    if not is_table(storage[module]) then storage[module] = {} end
+    if key then storage[module][key] = {} end --// если ключ равен nil, то по дефолту создадим пустую таблицу, на загрузке все равно она в nil превратится
+    return storage[module], storage[module][key]
+end
+local function g_get_data(key, with_check)
+    local module = debug.getinfo(2).short_src:gsub('^.-([^\\]+)%.[^.]+$', '%1')
+    assert(is_string(module), [[bad argument #? to 'get_data' (string expected, got %s)]], type(module))
+    if key then assert(is_string(key), [[bad argument #1 to 'get_data' (string expected, got %s)]], type(key)) end
+    log('get_data: module = [%s], key = [%s]', module, key)
+    local p1, p2 = nil, nil 
+    if with_check and (storage[module] == nil or storage[module][key]==nil) then return false end --// false возвращается специально
+    if (not is_table(storage[module])) or (key and not storage[module][key]) then --// ключ не проверяем на тип, так как он может быть чем угодно
+        p1, p2 = add_data(module, key)
+        log('get_data: create data [%s][%s]', module, key)
+    else
+        p1, p2 = storage[module], storage[module][key]
+        log('get_data: has data [%s]:[%s]', module, key)
+    end
+    return key and p2 or p1
+end
+local function g_has_data(key)
+    local module = debug.getinfo(2).short_src:gsub('^.-([^\\]+)%.[^.]+$', '%1')
+    assert(is_string(module), [[bad argument #? to 'has_data' (string expected, got %s)]], type(module))
+    if key then assert(is_string(key), [[bad argument #1 to 'has_data' (string expected, got %s)]], type(key)) end
+    if is_table(storage[module]) then
+        if key then 
+            return storage[module][key] ~= nil
+        end
+        return true
+    end
+    return false
+end
+local function g_clear_data(key) --// Karlan: настоятельно рекомендую вызывать после загрузки данных (в функцию выше не поставил, так как есть возможность получать только определенные поля, а чтобы сделать самочистику придется переписывать код, то есть явно разграничивать сохранение и загрузку, как это сделано в автоматике)
+    local module = debug.getinfo(2).short_src:gsub('^.-([^\\]+)%.[^.]+$', '%1')
+    assert(is_string(module), [[bad argument #? to 'clear_data' (string expected, got %s)]], type(module))
+    if key then assert(is_string(key), [[bad argument #1 to 'clear_data' (string expected, got %s)]], type(key)) end
+    if is_table(storage[module]) then
+        if key then
+            storage[module][key] = nil
+            return true
+        end
+        storage[module] = nil
+        return true
+    elseif storage[module] ~= nil then
+        warning('clear_data: storage["%s"] is not table or nil, DATA DO NOT DELETE', module)
+        return false
+    else
+        return true
+    end
+end
+--//------------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// механизм сохранения и загрузки
+--//-----------------------------------------------------------------
+--// Karlan->Nazgool: я переделал механизм инициализации хранилища, вроде упростил, а возможности стали больше :)
+--// механизм загрузки:
+--// 1 инициализируем при старте игры
+--// 2 сохраняем
+--// 3 на загрузке два варианта:
+    --// 1 горячая загрузка - распаковываем все два раза (todo: тут надо простенький чекер воткнуть, чтобы один раз распаковывать)
+    --// 2 холодная загрузка - распаковываем все один раз
+local function xvars_load() --// Карлан: нужен для загрузки данных в гейм объекты, когда объект есть и можно заполнять пстор, НЕ УДАЛЯТЬ!!!!
+    assert(_G.storage, 'Beer from the gamer') --// случилось невероятное
+    --// Karlan: в функциях ниже может уже учитыватся сложность игры, так что ее проставим самой первой
+    get_console():execute("g_game_difficulty "..game_difficulty_by_num[level.get_game_difficulty()]) --// устанавливаем флаг уровня сложности игры (0...4)
+    load_actor_pstor()
+    call_save_load('load', GAME_SCRIPTS)
+end
+
+local function xvars_save()
+    call_save_load('save', GAME_SCRIPTS)
+    save_actor_pstor() --// Karlan->ALL: в функциях выше у объектов, для которых нет нормального сохранения, и которые используют пстор; с вероятностью в 100% пишут все в актора, поэтому пстор актора надо сохранять самым последним
+    vars_table_assign(get_stored_vars(), pack_xstore(_G.storage))
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function load_storage()
+    log('MEMORY STORAGE IS INITIALIZED')
+    _G.storage      = unpack_xstore(get_stored_vars()()) --// TODO: запротектировать, глобальной она не нужна уже
+    _G.get_data     = g_get_data --// Karlan: аварийные функции, когда по нормальному никак не получается
+    _G.has_data     = g_has_data
+    _G.clear_data   = g_clear_data
+    _G.SAVE_OBJECT  = save_logic_object --// Karlan: пока так, но все-же мне кажется лучше ивентов навтыкать и полностью запротектировать прямо здесь
+    _G.LOAD_OBJECT  = load_logic_object
+    _G.CLEAR_OBJECT = clear_logic_object
+    _G.SAVE_DATA    = save_data_object
+    _G.LOAD_DATA    = load_data_object
+end
+--//-------------------------
+function init()
+    event("storage_load"):register(xvars_load)
+    event("storage_save"):register(xvars_save)
+    --// Карлан: сюда можно засунуть все ивенты и запротектировать сохранение объектов (это конечно хочется, но мне лень)
+end
+--//----------------------------------------------------------------------------------------------

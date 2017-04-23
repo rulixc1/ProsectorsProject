@@ -1,0 +1,45 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_death.script (replaces xr_death, mob_death, ph_on_death)
+ Description: pseudo-override
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "action_process_death"
+function action_process_death:__init(obj, storage)
+    self.object = obj
+    self.st = storage
+end
+function action_process_death:death_callback(data)
+    if xr_logic.try_switch_to_another_section(self.object, self.st, data) then return end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    xr_logic.subscribe_action_for_events(npc, storage, action_process_death(npc, storage))
+end
+function set_scheme(npc, ini, scheme, section, gulag_name) --// Karlan: переименовано в set_scheme для возможности указания в активной секции (для ph_on_death)
+    log('#DBG: set DEATH scheme for [%s]: scheme = <%s>, section = [%s], time = [%s]', npc:name(), scheme, section, time_global())
+    local st = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+    st.logic = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+end
+function reset_death(npc, scheme, st, section)
+    local sect = (scheme == nil or scheme == "nil") and st.section_logic or section
+--    printf("reset_death for <%s>:scheme[%s]:sect_logic[%s]:sect[%s]:res[%s]", npc, scheme, st.section_logic, section, sect)
+--    if cfg_get_string(st.ini, sect, "on_death") then --// Karlan: это по нормальному
+    local ds = cfg_get_string(st.ini, sect, "on_death") --// Karlan: делаем костыль, чтобы on_death можно было еще указывать в конкретной секции, а не только в заглавной
+    ds = (ds == nil) and cfg_get_string(st.ini, st.section_logic, "on_death") or ds
+    if ds then
+        st.logic = xr_logic.cfg_get_switch_conditions(st.ini, ds, npc)
+    end
+end
+--//-----------------------------------------------------------------------------------------------

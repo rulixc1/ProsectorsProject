@@ -1,0 +1,285 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_cleaner.script
+ Description: „истильщик трупов и лута
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan, Rulix
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = 1 --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local loaded = false
+--//--------------------
+local lv_change = true
+local critical_value = 60000
+local npc_corpse_time = 8*60*60*1000 --// Karlan: сколько труп будет вал€тс€
+local mob_corpse_time = 3*60*60*1000 --// Karlan: сколько труп будет вал€тс€
+local sid_corpse_multiply = math.random(1500, 2000)
+local allspawn_objects = {} --// Karlan: объекты, которые удал€ть не надо (актор их должен увидеть, иначе нафига было спавнить?)
+local valid_clsids = {
+    [clsid.art_bast_artefact] = "arts",
+    [clsid.art_black_drops] = "arts",
+    [clsid.art_dummy] = "arts",
+    [clsid.art_electric_ball] = "arts",
+    [clsid.art_faded_ball] = "arts",
+    [clsid.art_galantine] = "arts",
+    [clsid.art_gravi] = "arts",
+    [clsid.art_gravi_black] = "arts",
+    [clsid.art_mercury_ball] = "arts",
+    [clsid.art_needles] = "arts",
+    [clsid.art_rusty_hair] = "arts",
+    [clsid.art_thorn] = "arts",
+    [clsid.art_zuda] = "arts",
+    [clsid.artefact] = "arts",
+    [clsid.artefact_s] = "arts",
+    [clsid.obj_backpack] = "bag",
+    [clsid.obj_medkit] = "medkit",
+    [clsid.obj_bandage] = "bandage",
+    [clsid.obj_food] = "food",
+    [clsid.obj_antirad] = "antirad",
+    [clsid.obj_bottle] = "bottle",
+    [clsid.wpn_grenade_rpg7]= "ammo",
+    [clsid.wpn_grenade_f1] = "grenade",
+    [clsid.wpn_grenade_rgd5]= "grenade",
+    [clsid.wpn_grenade_fake]= "grenade",
+    [clsid.wpn_knife_s] = "knife",
+    [clsid.wpn_ammo] = "ammo",
+    [clsid.wpn_ammo_vog25] = "ammo",
+    [clsid.wpn_ammo_og7b] = "ammo",
+    [clsid.wpn_ammo_m209] = "ammo",
+    [clsid.equ_military] = "outfit",
+    [clsid.equ_stalker] = "outfit",
+    [clsid.equ_exo]  = "outfit",
+    [clsid.equ_scientific] = "outfit",
+    [clsid.equ_stalker_s] = "outfit",
+    [clsid.device_torch_s] = "torch",
+    [clsid.device_pda] = "pda",
+    [clsid.device_detector_simple] = "detector",
+    [clsid.wpn_binocular] = "binoc",
+    [clsid.wpn_binocular_s] = "binoc",
+    [clsid.wpn_scope] = "scope",
+    [clsid.wpn_scope_s] = "scope",
+    [clsid.wpn_silencer] = "silencer",
+    [clsid.wpn_grenade_launcher] = "grenade_launcher",
+    [clsid.wpn_ak74_s] = "wpn",
+    [clsid.wpn_bm16_s] = "wpn",
+    [clsid.wpn_fn2000] = "wpn",
+    [clsid.wpn_fort] = "wpn",
+    [clsid.wpn_groza_s] = "wpn",
+    [clsid.wpn_hpsa_s] = "wpn",
+    [clsid.wpn_lr300_s] = "wpn",
+    [clsid.wpn_pm_s] = "wpn",
+    [clsid.wpn_shotgun_s] = "wpn",
+    [clsid.wpn_svd_s] = "wpn",
+    [clsid.wpn_svu_s] = "wpn",
+    [clsid.wpn_usp45_s] = "wpn",
+    [clsid.wpn_val_s] = "wpn",
+    [clsid.wpn_vintorez_s] = "wpn",
+    [clsid.wpn_walther_s] = "wpn",
+    [clsid.wpn_rg6_s] = "wpn",
+    [clsid.wpn_rpg7_s] = "wpn",
+    [clsid.obj_explosive] = "explosive"
+}
+qu_items = { --// Karlan: объединенна€
+--// quest items
+    ["decoder"] = true,
+    ["bar_lucky_pda"] = true,
+    ["bar_ecolog_flash"] = true,
+    ["cit_leader_killer_pda"] = true,
+    ["quest_case_02"] = true,
+    ["cit_vp_pda"] = true,
+    ["af_blood_tutorial"] = true,
+    ["dar_document5"] = true,
+    ["dar_document4"] = true,
+    ["dar_pass_document"] = true,
+    ["good_psy_helmet"] = true,
+    ["rad_scientist_flash"] = true,
+    ["pri_decoder_documents"] = true,
+    ["dar_document1"] = true,
+    ["dynamite"] = true,
+    ["dar_pass_flash"] = true,
+    ["dar_document2"] = true,
+    ["quest_case_01"] = true,
+    ["cit_deadcity_maps"] = true,
+    ["dar_document3"] = true,
+    ["lab_x16_documents"] = true,
+    ["gunslinger_flash"] = true,
+    ["cit_doctors_key"] = true,
+    ["cit_killers_documents"] = true,
+    ["mil_svoboda_leader_pda"] = true,
+    ["crazy_flash"] = true,
+    ["bad_psy_helmet"] = true,
+    ["val_key_to_underground"] = true,
+    ["kruglov_flash"] = true,
+    ["esc_wounded_flash"] = true,
+    ["bar_tiran_pda"] = true,
+--// unique items
+    ["wpn_ak74u_arena"] = true,
+    ["outfit_killer_m1"] = true,
+    ["wpn_mp5_arena"] = true,
+    ["outfit_svoboda_m1"] = true,
+    ["wpn_svd_m1"] = true,
+    ["outfit_novice_m1"] = true,
+    ["wpn_val_m1"] = true,
+    ["wpn_groza_m1"] = true,
+    ["wpn_g36_arena"] = true,
+    ["hunters_toz"] = true,
+    ["wpn_lr300_m1"] = true,
+    ["wpn_mp5_m1"] = true,
+    ["wpn_winchester_m1"] = true,
+    ["wpn_groza_arena"] = true,
+    ["outfit_specnaz_m1"] = true,
+    ["wpn_fort_m1"] = true,
+    ["wpn_abakan_m1"] = true,
+    ["wpn_eagle_m1"] = true,
+    ["wpn_spas12_arena"] = true,
+    ["wpn_ak74u_m1"] = true,
+    ["wpn_sig_m1"] = true,
+    ["wpn_l85_m2"] = true,
+    ["wpn_val_arena"] = true,
+    ["outfit_bandit_m1"] = true,
+    ["wpn_fn2000_arena"] = true,
+    ["wpn_bm16_arena"] = true,
+    ["outfit_stalker_m1"] = true,
+    ["wpn_ak74_arena"] = true,
+    ["outfit_stalker_m2"] = true,
+    ["wpn_l85_m1"] = true,
+    ["outfit_killer_m2"] = true,
+    ["wpn_pm_arena"] = true,
+    ["wpn_colt_m1"] = true,
+    ["wpn_walther_m1"] = true,
+    ["outfit_dolg_m1"] = true,
+    ["wpn_ak74_m1"] = true,
+    ["wpn_sig_m2"] = true,
+    ["wpn_rg6_m1"] = true,
+    ["wpn_spas12_m1"] = true,
+    ["outfit_exo_m1"] = true,
+    ["wpn_mp5_m2"] = true,
+    ["wpn_toz34_arena"] = true,
+    ["wpn_abakan_m2"] = true,
+}
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+local function fill_allspawn_objects()
+    --// Karlan->Team: здесь еще, если упоротьс€, можно составить массив из спавн коллбеков серверных классов, это быстрее, но да, надо бы уже угомонитс€
+    sim:iterate_objects(function(obj)
+        local clsid = obj:clsid()
+            if valid_clsids[clsid] or (obj.alive and not obj:alive() and (IsStalker(_,clsid) or IsMonster(_,clsid))) then
+            if obj.parent_id == INVALID_ID and not allspawn_objects[obj.id] then --// Karlan: таски тут уже могут подцепить свои итемы
+                log('%~[D02] ~> %s added in allsapwn', obj:name())
+                allspawn_objects[obj.id] = true
+            end
+        end
+    end)
+end
+local function remove_creature(obj)
+    if not is_function(obj.game_death_time) then collect_info('Method "%s" not found in object <%s>, error!', "game_death_time", obj) if not PROSECTORS_DEBUG then return end end --// Karlan: зло побеждено, но оставим, мало-ли еще кого забыли, а игрокам по таким поводам напр€гатьс€ не стоит
+    local diff_sec = game.get_game_time():diffSec(obj:game_death_time())
+    for i,item in ipairs(sim:get_children(obj)) do
+        if allspawn_objects[item.id] then allspawn_objects[item.id] = nil end
+        if item.m_story_id ~= INVALID_STORY_ID then return end
+        local section = item:section_name()
+        if qu_items[section] then return end
+        -- if section:match('_m%d') then return end
+        if (diff_sec > math.random(30,120)*60*1000) or (sim:get_objects_count() > critical_value) then
+            log("*~[D01] ~> remove_creature ITEM [%s] in [%s]:[%s]", item:name(), obj:name(), obj.level_name)
+            sim:release(item) --// Karlan: итемы вычищаем быстрее
+        end
+    end
+    if obj.treasure_processed == false then
+        local ini = obj:spawn_ini()
+        if ini:section_exist('known_info') then return end
+        local info = false
+        ini:section_for_each(function(sect) if ini:line_exist(sect, 'info') then info = true return true end end)
+        if info then return end --// Karlan: если непис€ кормили инфо в логике, то его до шмона удал€ть не надо
+        if allspawn_objects[obj.id] then return end
+    end
+    local corpse_time = (IsStalker(obj) and npc_corpse_time) or (IsMonster(obj) and mob_corpse_time)
+    assert(is_number(corpse_time), 'is_number(corpse_time)')
+    if (sim:get_objects_count() < critical_value) and (diff_sec < (obj.m_story_id == INVALID_STORY_ID and corpse_time or corpse_time*(sid_corpse_multiply/1000))) then return end
+    allspawn_objects[obj.id] = nil --// Karlan: если труп уже обыскали, то его можно удалить
+    log("*~[D01] ~> remove_creature [%s]:[%s]~>CT[%s]:DT[%s]", obj:name(), obj.level_name, game.get_game_time(), obj:game_death_time())
+    sim:release(obj)
+end
+local function remove_ownerless_item(obj)
+    -- if obj.online then return end
+    if obj.m_story_id ~= INVALID_STORY_ID then return end
+    -- if obj.parent_id ~= INVALID_ID then return end
+    local section = obj:section_name()
+    if qu_items[section] then return end
+    if allspawn_objects[obj.id] then return end
+    -- if section:match('_m%d') then return end --// неактуально с текущим массивом
+    log("*~[D01] ~> remove_ownerless_item [%s]:[%s]", obj:name(), obj.level_name)
+    sim:release(obj)
+end
+local function clean(e)
+    if e and e.is_first_start then --// 'e and' дл€ вызова clean из любых иных мест
+        fill_allspawn_objects()
+        return
+    end
+    local level_id = sim:level_id()
+    for i,obj in ipairs(sim:get_free_items()) do
+        if obj.level_id ~= level_id and valid_clsids[obj:clsid()] then
+            remove_ownerless_item(obj)
+        end
+    end
+    for i,obj in ipairs(sim:get_dead_bodies()) do
+        if obj.level_id ~= level_id then
+            remove_creature(obj)
+        end
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+local function presets(e)
+    assert(loaded, "not init!")
+    -- local tm = debug.timer('cleaner'):start()
+    if lv_change then --// Karlan: поскольку чистим только другие уровни, то после первого захода уборщик вызывать не нужно
+        -- logc("! clean %s",e.is_first_start)
+        clean(e)
+    end
+    -- log('#[T01]~> cleaner net_spawn overhead = %.3f ms', tm:stop().total/1000)
+end
+--//-------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-----------------------------------------------------------------------------------------------
+--// Serialization module
+--//-----------------------------------------------------------------------------------------------
+function save(pk)
+    pk.lv_change = level_changing()
+    pk.allobjs = allspawn_objects
+end
+function load(pk)
+    lv_change = pk.lv_change
+    allspawn_objects = table.merge(allspawn_objects, pk.allobjs) --// Karlan: на момент загрузки данных в таблицу кто-то что-то уже может уложить на сервере, поэтому всегда сливаем
+end
+--//-----------------------------------------------------------------------------------------------
+--// External functions
+--//-----------------------------------------------------------------------------------------------
+function add_exclude(obj)
+    local id = get_id(obj)
+    assert(id~=INVALID_ID, 'add_exclude: id~=INVALID_ID %s', obj)
+    if not allspawn_objects[id] then
+        allspawn_objects[id] = true
+    end
+end
+
+function remove_exclude(obj)
+    local id = get_id(obj)
+    assert(id~=INVALID_ID, 'remove_exclude: id~=INVALID_ID %s', obj)
+    if not allspawn_objects[id] then
+        allspawn_objects[id] = nil
+    end
+end
+--//-----------------------------------------------------------------------------------------------

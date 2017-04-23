@@ -1,0 +1,202 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_events.script 
+ Description: Event-Driven Model
+ Copyright  : 2017 © Prosectors Project
+ Author     : Карлан (по материалам: Artos, xStream)
+--]] ----------------------------------------------------------------------------------------------
+
+--[[
+--// разъяснения по маркерам модулей:
+~> [0] - критически важный базовый модуль! НЕ УДАЛЯТЬ и НЕ ОТКЛЮЧАТЬ!
+~> [1] - критически важный в локальных ситуациях (квесты, эпизоды, ...). НЕ желательно отключать.
+~> [2] - опциональный(необязательный) для старта игры, но НЕ удалять если был включен.
+~> [3] - опциональный(необязательный) для игры, исключающий отдельные функции/фишки во всей игре.
+~> [4] - опциональный(необязательный) для игры, исключающий отдельные функции/фишки в отдельных эпизодах.
+~> [-] - зависящий от родительского. Отдельно НЕ отключать, отключается только вместе с родительским!
+~> [?] - информация по возможности отключения которого уточняется.
+~> [x] - модуль, находящийся в разработке (т.е. зарезервирован)
+
+--//------------------------------------------------------------------------------|
+--//------  |  MODULE NAME  |  MODULE MARKER  |     MODULE DESCRIPTION    | ------|
+--//------------------------------------------------------------------------------|
+--//------  | m_events      |       [0]       | event-driven system       | ------|
+--//------  | m_storage     |       [0]       | universal storage system  | ------|
+--//------  | m_inventory   |       [0]       | inventory functions       | ------|
+--//------  | m_ammo        |       [3]       | operation with ammunition | ------|
+--//------  | m_items       |       [3]       | operation with items      | ------|
+]]
+--//-----------------------------------------------------------------
+--// VARIABLEs
+--//-----------------------------------------------------------------
+local flag_init = false
+local events = {}
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Local Functions
+--//-----------------------------------------------------------------------------------------------
+local function init_module_if_exists(fname, no_assert)
+    prefetch(fname) 
+    local module = _G[fname]
+    if module then
+        assert(type(module) == 'table', "Initialize_Module:='"..tostring(fname).."'~wrong, must be a table")
+        log('trying call function %s.init() in _G: <exist = [%s] type = [%s]>', fname, module.init~=nil, type(module.init))
+        if type(module.init) == 'function' then
+            module.init()
+        end
+    else
+        if not no_assert then
+            log("!#ERROR: init_module_if_exists: cannot find module "..fname)
+            assert(false) 
+        end
+    end
+end
+
+local function grab_modules(_dir,dir_include)
+    local exclude_modules = {} --// модули, которые не нужно подключать
+    local include_modules = { --// руками вписывать только исключения, остальное система подберет сама
+        --// name's [includes]
+        bind_restrictor = true,
+        ai_modules      = true,
+        ai_animation    = true,
+        --// pattern's
+        ['m_']          = true,
+        ['manager_']    = true,
+        ['sr_']         = true,
+    }
+    
+    for file in lfs.dir(_dir) do
+        if file ~= "." and file ~= ".." then
+            local name,ext = file:match('(.*)%.(.-)$')
+            if not name and not ext then --// Karlan: recurse
+                grab_modules(_dir .. '/' .. file,dir_include or include_modules[file] == true)
+            end
+            if ext == "script" then
+                local prefix, prefix_greedy = name:match('^(.-_)'), name:match('^(.*_)') --// Karlan: теперь, если жадное хватаем, а обычное нет, то надо написать исключение для базового паттерна, это необходимый контроль за подхватом модулей + очередной прирост к функционалу
+                if not exclude_modules[name] and (dir_include or include_modules[prefix] or include_modules[prefix_greedy] or include_modules[name]) then
+                    init_module_if_exists(name)
+                    if _G[name]._DEBUG_ then _G[name].reboot = function() debug.reboot(name) end end --// не создается для тех кто под дебагом, но не под этой системой, выше поднимать нельзя, так как там еще нет модуля, соотвественно луа упадет, так что либо переделывать с учетом, либо учитывать то, как сейчас работает
+                    -- log('module [%s] is [%s], and successfully connected to the system', name, true)
+                -- else
+                    -- log('module [%s] is [%s], and NOT connected to the system', name, include_modules[name] or false)
+                end
+            end
+        end
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global Functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Initialize Module
+--//-----------------------------------------------------------------
+function init()
+    if flag_init then return end
+    _G.event = this.event
+    m_storage.load_storage() --// Karlan: на самом деле здесь мы инициализируем только функицонал, хранилище нам здесь не нужно, но его тоже цепляем, чтобы функционал не ругался, хранилище нам выдаст пустую LUA_TTABLE (на самом деле nil сконвертированный в LUA_TTABLE, который потом опять превратится в nil, если ничего не произойдет), так что нагрузки можно сказать абсолютно никакой
+    event("actor_spawn"):register(presets_trigger)
+    flag_init = true
+end
+function presets_trigger(e)
+    event("presets"):once(true):trigger(e)
+end
+function start()
+    grab_modules(GAME_SCRIPTS)
+end
+
+class "event"
+function event:__init(name)
+    if name and name ~= "" then
+        if not events[name] then  
+            events[name] = {}
+            log("*event:init:=["..name.."] ~> added:[+]") 
+        end
+    self.__evt_name = name
+    else
+        log("!event:init:name can not be empty: [%s]", "error!")
+        exit()
+    end
+end
+
+function event:name()
+    return self.__evt_name 
+end
+
+function event:register(func, userobj, ...)
+    --// Karlan: todo: по хорошему здесь в трейсбеке надо ловить реальное имя функции и ключем ставить его, чтобы лог показывал имя функции, а не шаблон
+    if type(func) == 'function' then
+        self:unregister(func)
+        table.insert(events[self.__evt_name], { func = func, uo = userobj, _func = function(data, ...) func(data, userobj, self, ...) end})
+        log("*event:register:=["..self.__evt_name.."],#events=["..tostring(#events[self.__evt_name]).."]:[+]") 
+    end
+end
+
+function event:registered(func, userobj) --// учитывать arg {...}
+    for _,v in ipairs(events[self.__evt_name]) do
+        if rawequal(func, v.func) and (userobj == nil or (type(userobj) == type(v.uo) and (is_table(userobj) and table.equal(userobj, v.uo, 1) or rawequal(userobj, v.uo)))) then
+            return true 
+        end
+    end
+end
+
+function event:unregister(func)
+    for i,v in pairs(events[self.__evt_name]) do
+        if rawequal(v.func, func) then
+            table.remove(events[self.__evt_name], i)
+            log("*event:unregister:=["..self.__evt_name.."],#events=["..tostring(#events[self.__evt_name]).."]:[x]") 
+        end
+    end
+end
+
+function event:trigger(data)
+    if next(events[self.__evt_name]) then
+        if self.__break ~= true then
+            for i,v in pairs(events[self.__evt_name]) do
+                if is_table(v.uo) and v.uo.__period then --// Karlan: вне зависимости от типа события даем возможность указать период срабатывания
+                    v.uo.time_last = v.uo.time_last or 0
+                    if time_global() > v.uo.time_last then
+                        v.uo.time_last = time_global() + v.uo.__period
+                        v._func(data)
+                    end
+                else
+                    v._func(data)
+                end
+                -- log("*event:trigger:=(%s/%s):[%s]", self.__evt_name, tostring(#events[self.__evt_name]), "<") 
+                if self.__remove then
+                    table.remove(events[self.__evt_name], i)
+                end
+            end
+        end
+        if self.__once == true then 
+            events[self.__evt_name] = nil
+        end
+    end
+end
+
+function event:once(is_once)
+    self.__once = is_once == true
+    return self
+end
+
+function event:stop()
+    self.__break = true
+    return self 
+end
+
+function event:remove() --// отложенное удаление
+    self.__remove = true
+    return self 
+end
+
+function event:clear(name)
+    if name and events[name] then 
+        log("*event:clear:=[%s]:#(%s):[%s]", name, #events[name], "x") 
+        events[name] = nil
+    end
+end
+
+if not flag_init then init() end

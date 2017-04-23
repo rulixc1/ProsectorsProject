@@ -1,0 +1,805 @@
+-- file:        UI_MM_OPT_MAIN.script
+-- created:        01.07.2005
+-- description:    options dialog
+-- author:        Serge Vynnychenko
+--
+
+class "options_dialog" (CUIScriptWnd)
+
+function options_dialog:__init() super()
+   self:SetFont(GetFontMedium()) --set base font for dialog.
+
+    self.m_preconditions    = {}
+
+    self:InitControls()
+    self:InitCallBacks()
+end
+
+function options_dialog:__finalize()
+
+end
+
+function options_dialog:InitControls()
+    self:Init(0,0,1024,768)
+    self:Enable(true)
+
+    local xml = CScriptXmlInit()
+    xml:ParseFile("ui_mm_opt.xml")
+
+
+    xml:InitStatic("back_video", self)
+    xml:InitStatic("background", self)
+    xml:InitStatic("rug_video", self)
+    self.dialog = xml:InitStatic("main_dialog:dialog", self)
+
+    xml:InitStatic("main_dialog:cap_options", self.dialog)
+
+    self.dlg_video = this.opt_video()
+    self.dlg_video:InitControls(55,74, xml, self)
+    self.dialog:AttachChild(self.dlg_video)
+
+    self.dlg_sound = this.opt_sound()
+    self.dlg_sound:InitControls(55,74, xml, self)
+    self.dlg_sound:Show(false)
+    self.dialog:AttachChild(self.dlg_sound)
+
+    self.dlg_gameplay = this.opt_gameplay()
+    self.dlg_gameplay:InitControls(55,74, xml, self)
+    self.dlg_gameplay:Show(false)
+    self.dialog:AttachChild(self.dlg_gameplay)
+
+    self.dlg_controls = this.opt_controls()
+    self.dlg_controls:InitControls(55,74, xml, self)
+    self.dlg_controls:Show(false)
+    self.dialog:AttachChild(self.dlg_controls)
+
+    self.dlg_video_adv = this.opt_video_adv()
+    self.dlg_video_adv:InitControls(55,74, xml, self)
+    self.dlg_video_adv:Show(false)
+    self.dialog:AttachChild(self.dlg_video_adv)
+
+    local btn
+    btn = xml:Init3tButton("main_dialog:btn_accept", self.dialog)
+    self:Register(btn, "btn_accept")
+    btn = xml:Init3tButton("main_dialog:btn_cancel", self.dialog)
+    self:Register(btn, "btn_cancel")
+
+    self.tab = xml:InitTab("main_dialog:tab", self.dialog)
+    self:Register(self.tab, "tab")
+
+
+    self.message_box = CUIMessageBoxEx()
+
+    self.b_r2_restart_shown        = false
+
+    -- self.cap_download                = xml:InitStatic        ("download_static",self)
+    -- self.text_download                = xml:InitStatic        ("download_text",self)
+    -- self.download_progress            = xml:InitProgressBar    ("progress_download", self)
+    -- self.btn_cancel_download        = xml:Init3tButton        ("btn_cancel_download", self)
+    -- self:Register                    (self.btn_cancel_download, "btn_cancel_download")
+
+end
+
+function options_dialog:UpdateControls()
+    local opt = COptionsManager()
+
+    opt:SetCurrentValues("mm_opt_video_preset")
+    opt:SaveBackupValues("mm_opt_video_preset")
+
+    opt:SetCurrentValues("mm_opt_video")
+    opt:SaveBackupValues("mm_opt_video")
+
+    opt:SetCurrentValues("mm_opt_video_adv")
+    opt:SaveBackupValues("mm_opt_video_adv")
+
+    opt:SetCurrentValues("mm_opt_gameplay")
+    opt:SaveBackupValues("mm_opt_gameplay")
+
+    opt:SetCurrentValues("mm_opt_sound")
+    opt:SaveBackupValues("mm_opt_sound")
+
+    opt:SetCurrentValues("mm_opt_controls")
+
+    opt:SetCurrentValues("key_binding")
+
+    if not xrRender_test_r2_hw() then
+        self.combo_r2:SetCurrentID        (0)
+        self.combo_r2:Enable            (false)
+    end
+
+    self:UpdateDependControls()
+    self.dlg_sound:UpdateControls()
+end
+
+function options_dialog:UpdateDependControls()
+
+    local _current_id    = self.combo_r2:CurrentID()
+
+    for i,j in pairs(self.m_preconditions) do
+        j                (i, _current_id)
+    end
+--[[
+    if self.combo_r2:CurrentID()==1 then
+        self.ch_r2_sun:Enable            (true)
+        self.ch_r2_sun_det:Enable        (true)
+    else
+        self.ch_r2_sun:Enable            (false)
+        self.ch_r2_sun_det:Enable        (false)
+    end
+]]
+end
+
+function options_dialog:InitCallBacks()
+    self:AddCallback("tab",                    ui_events.TAB_CHANGED,        self.OnTabChange,            self)
+    self:AddCallback("btn_advanced_graphic",ui_events.BUTTON_CLICKED,    self.OnBtnAdvGraphic,        self)
+    self:AddCallback("btn_accept",            ui_events.BUTTON_CLICKED,    self.OnBtnAccept,            self)
+    self:AddCallback("btn_cancel",            ui_events.BUTTON_CLICKED,    self.OnBtnCancel,            self)
+    self:AddCallback("btn_default_graphic",    ui_events.BUTTON_CLICKED,    self.OnBtnDefGraph,            self)
+--    self:AddCallback("btn_default_sound",    ui_events.BUTTON_CLICKED,    self.OnBtnDefSound,            self)
+    self:AddCallback("combo_r2",            ui_events.LIST_ITEM_SELECT,    self.OnR2changed,            self)
+    self:AddCallback("combo_preset",        ui_events.LIST_ITEM_SELECT,    self.OnPresetChanged,        self)
+    self:AddCallback("btn_simply_graphic",    ui_events.BUTTON_CLICKED,    self.OnSimplyGraphic,        self)
+    self:AddCallback("btn_keyb_default",    ui_events.BUTTON_CLICKED,    self.OnBtnDefault,            self)
+--  self:AddCallback("btn_check_updates",    ui_events.BUTTON_CLICKED,    self.OnBtnCheckUpdates,        self)
+--  self:AddCallback("btn_cancel_download",    ui_events.BUTTON_CLICKED,    self.OnBtn_CancelDownload,    self)
+    self.dlg_sound:InitCallBacks(self)
+end
+--[[
+function options_dialog:OnBtnCheckUpdates()
+    local console            = get_console()
+    console:execute            ("check_for_updates 1")
+end
+]]
+function options_dialog:OnBtnDefault()
+    local console            = get_console()
+--    console:execute            ("cfg_load default_controls")
+    console:execute            ("unbindall")
+
+    local opt                = COptionsManager()
+    opt:SetCurrentValues    ("mm_opt_controls")
+    opt:SetCurrentValues    ("key_binding")
+end
+
+function options_dialog:OnPresetChanged()
+    local opt                    = COptionsManager()
+    opt:SetCurrentValues        ("mm_opt_video")
+    opt:SetCurrentValues        ("mm_opt_video_adv")
+end
+
+function options_dialog:OnR2changed()
+
+    self:UpdateDependControls                ()
+
+    if false==self.b_r2_restart_shown then
+        self.b_r2_restart_shown             = true
+        self.message_box:Init            ("message_box_restart_game")
+        self:GetHolder():start_stop_menu(self.message_box,true)
+    end
+
+end
+
+function options_dialog:OnBtnDefGraph()
+    local opt = COptionsManager()
+    opt:SendMessage2Group("mm_opt_video","set_default_value")
+end
+
+function options_dialog:OnBtnDefSound()
+    local opt = COptionsManager()
+    opt:SendMessage2Group("mm_opt_sound","set_default_value")
+end
+
+function options_dialog:OnBtnAccept()
+
+    local opt = COptionsManager()
+    local console = get_console()
+
+    opt:SaveValues("mm_opt_video_preset")
+    opt:SaveValues("key_binding")
+    opt:SaveValues("mm_opt_video")
+    opt:SaveValues("mm_opt_video_adv")
+    opt:SaveValues("mm_opt_gameplay")
+    opt:SaveValues("mm_opt_sound")
+    opt:SaveValues("mm_opt_controls")
+    opt:OptionsPostAccept()
+
+    self:GetHolder():start_stop_menu    (self.owner, true) --new(show main window)
+    self:GetHolder():start_stop_menu    (self,true)
+    self.owner:Show                        (true)
+
+	self.dlg_sound:apply_settings(self)
+	self.dlg_sound:clear()
+end
+
+function options_dialog:OnBtnCancel()
+    local opt = COptionsManager()
+    opt:UndoGroup("mm_opt_video_preset")
+    opt:UndoGroup("mm_opt_video")
+    opt:UndoGroup("mm_opt_video_adv")
+    opt:UndoGroup("mm_opt_sound")
+    opt:OptionsPostAccept()
+	self.dlg_sound:clear()
+
+    self:GetHolder():start_stop_menu    (self.owner, true) --new(show main window)
+    self:GetHolder():start_stop_menu    (self,true)
+    self.owner:Show                        (true)
+end
+
+function options_dialog:OnTabChange()
+    self.dlg_video:Show        (false)
+    self.dlg_sound:Show        (false)
+	self.dlg_sound:clear()
+    self.dlg_gameplay:Show    (false)
+    self.dlg_controls:Show    (false)
+    self.dlg_video_adv:Show    (false)
+
+    local i = self.tab:GetActiveIndex()
+    if i == 0 then
+        self.dlg_video:Show(true)
+    elseif i == 1 then
+        self.dlg_sound:Show(true)
+    elseif i == 2 then
+        self.dlg_gameplay:Show(true)
+    elseif i == 3 then
+        self.dlg_controls:Show(true)
+    end
+end
+
+function options_dialog:OnBtnAdvGraphic()
+    self.dlg_video:Show        (false)
+    self.dlg_video_adv:Show    (true)
+end
+
+function options_dialog:OnSimplyGraphic()
+    self.dlg_video:Show        (true)
+    self.dlg_video_adv:Show    (false)
+end
+
+function options_dialog:OnKeyboard(dik, keyboard_action)
+    local res = CUIScriptWnd.OnKeyboard(self,dik,keyboard_action)
+
+    if res==false then
+
+        local bind = dik_to_bind(dik)
+
+        if keyboard_action == ui_events.WINDOW_KEY_PRESSED then
+            if dik == DIK_keys.DIK_ESCAPE then
+                if self.dlg_video_adv:IsShown() then
+                    self.dlg_video_adv:Show    (false)
+                    self.dlg_video:Show        (true)
+                else
+					self.dlg_sound:clear()
+                    self:GetHolder():start_stop_menu    (self.owner, true) --new(show main window)
+                    self:GetHolder():start_stop_menu    (self,true)
+                    self.owner:Show                        (true)
+                end
+                get_console():execute("cfg_save")
+            end
+
+        end
+    end
+
+    return res
+end
+
+function options_dialog:Update()
+    CUIScriptWnd.Update(self)
+	if self.dlg_sound:IsShown() then
+		self.dlg_sound:Update()
+	end
+--[[
+    local mm = main_menu.get_main_menu()
+    local sss = mm:GetPatchProgress()
+
+    if sss:GetInProgress() then
+        self.text_download:Show                    (true)
+        self.cap_download:Show                    (true)
+        self.download_progress:Show                (true)
+        local _progr                            = sss:GetProgress()
+        self.download_progress:SetProgressPos    (_progr)
+        local str                                = string.format("%.0f%%(%s)",_progr,sss:GetFlieName())
+        self.text_download:SetText                (str)
+        self.btn_cancel_download:Show            (true)
+    else
+        self.text_download:Show                    (false)
+        self.cap_download:Show                    (false)
+        self.download_progress:Show                (false)
+        self.btn_cancel_download:Show            (false)
+    end
+	--]]
+end
+
+-- added by Karlan
+class "opt_video" (CUIWindow)
+
+function opt_video:__init() super()
+end
+
+function opt_video:__finalize()
+
+end
+
+function opt_video:InitControls(x, y, xml, handler)
+
+    self:Init(x,y, 738, 416)
+    self:SetAutoDelete(true)
+
+    self.bk = xml:InitFrame            ("frame", self)
+
+    xml:InitStatic                    ("tab_video:cap_fullscreen",        self)
+    xml:InitCheck                    ("tab_video:check_fullscreen",        self)
+
+    xml:InitStatic                    ("tab_video:cap_brightness",        self)
+    xml:InitTrackBar                ("tab_video:track_brightness",        self)
+
+    xml:InitStatic                    ("tab_video:cap_contrast",            self)
+    xml:InitTrackBar                ("tab_video:track_contrast",        self)
+
+    xml:InitStatic                    ("tab_video:cap_gamma",                self)
+    xml:InitTrackBar                ("tab_video:track_gamma",            self)
+
+    xml:InitStatic                    ("tab_video:cap_resolution",        self)
+    xml:InitComboBox                ("tab_video:list_resolution",        self)
+
+    xml:InitStatic                    ("tab_video:cap_preset",            self)
+    handler.combo_preset = xml:InitComboBox("tab_video:list_presets",    self)
+    handler:Register                (handler.combo_preset,                "combo_preset")
+
+    xml:InitStatic                    ("tab_video:cap_renderer",            self)
+    handler.combo_r2 = xml:InitComboBox("tab_video:list_renderer",        self)
+    handler:Register                (handler.combo_r2, "combo_r2")
+
+    btn        = xml:Init3tButton        ("tab_video:btn_advanced",    self)
+    handler:Register                (btn, "btn_advanced_graphic")
+end
+
+class "opt_sound" (CUIWindow)
+
+function opt_sound:__init() super()
+end
+
+function opt_sound:__finalize()
+
+end
+
+function opt_sound:InitControls(x, y, xml, handler)
+	self.handler = handler
+    self.b_snd_restart_shown	= false
+    self.sm_cf_id				= 0
+
+    self:Init(x,y, 738, 416)
+    self:SetAutoDelete(true)
+
+    self.bk = xml:InitFrame("frame", self)
+
+    xml:InitStatic("tab_sound:cap_mastervolume",        self)
+    xml:InitStatic("tab_sound:cap_musicvolume",        self)
+--    xml:InitStatic("tab_sound:cap_sfxvolume",        self)
+--    xml:InitStatic("tab_sound:cap_voicevolume",        self)
+
+	self.cap_snd_eff = xml:InitCheck("tab_sound:check_effects",	self)
+	self.cap_snd_eax = xml:InitCheck("tab_sound:check_eax",		self)
+	self.cap_snd_efx = xml:InitCheck("tab_sound:check_efx",		self)
+    handler:Register(self.cap_snd_eff,"cap_snd_eff")
+    handler:Register(self.cap_snd_eax,"cap_snd_eax")
+    handler:Register(self.cap_snd_efx,"cap_snd_efx")
+
+    xml:InitTrackBar("tab_sound:track_musicvolume",    self)
+    xml:InitTrackBar("tab_sound:track_mastervolume",self)
+
+--    btn = xml:Init3tButton("tab_sound:btn_default_set",    self)
+--    handler:Register(btn, "btn_default_sound")
+
+	xml:InitLabel("tab_sound_soft:cap_softsetup", self)
+
+	self.btn_sample_1	= xml:Init3tButton("tab_sound:btn_sample_1", self)
+	self.btn_sample_2	= xml:Init3tButton("tab_sound:btn_sample_2", self)
+	self.btn_apply		= xml:Init3tButton("tab_sound:btn_apply", self)
+	self.btn_testenv	= xml:Init3tButton("tab_sound:btn_test_env", self)
+    handler:Register(self.btn_sample_1,"btn_sample_1")
+    handler:Register(self.btn_sample_2,"btn_sample_2")
+    handler:Register(self.btn_apply,"btn_apply")
+    handler:Register(self.btn_testenv,"btn_testenv")
+
+	-- SOFT
+	self.crossfeed_cap	= xml:InitStatic("tab_sound_soft:cap_crossfeed", self)
+	self.crossfeed_cap:Show(false)
+	self.crossfeed		= xml:InitComboBox("tab_sound_soft:list_crossfeed", self)
+	self.crossfeed:Show(false)
+	self.hrtf_p_cap		= xml:InitStatic("tab_sound_soft:cap_hrtf_preset", self)
+	self.hrtf_p_cap:Show(false)
+	self.hrtf_p			= xml:InitComboBox("tab_sound_soft:list_hrtf_preset", self)
+	self.hrtf_p:Show(false)
+
+	self.stereomode_cap	= xml:InitStatic("tab_sound_soft:cap_stereomode", self)
+	self.stereomode		= xml:InitComboBox("tab_sound_soft:list_stereomode", self)
+    handler:Register(self.stereomode,"list_stereomode")
+
+	self.hrtf			= xml:InitCheck("tab_sound_soft:check_hrtf", self)
+    handler:Register(self.hrtf,"check_hrtf")
+
+	-- SND DEVICE
+	xml:InitStatic("tab_sound:cap_snd_device",self)
+	self.combo_snd_d = xml:InitComboBox("tab_sound:list_snd_device",self)
+    handler:Register(self.combo_snd_d, "combo_snd_d")
+	
+    xml:InitStatic("tab_sound:cap_doppler",self)
+    xml:InitComboBox("tab_sound:list_doppler",self)
+end
+
+function opt_sound:InitCallBacks(handler)
+    handler:AddCallback("combo_snd_d",		ui_events.LIST_ITEM_SELECT,	self.OnSndDchanged,			self)
+	
+    handler:AddCallback("cap_snd_eff",		ui_events.BUTTON_CLICKED,	self.OnSndEffectsClicked,	self)
+    handler:AddCallback("cap_snd_eax",		ui_events.BUTTON_CLICKED,	self.OnEAXClicked,			self)
+    handler:AddCallback("cap_snd_efx",		ui_events.BUTTON_CLICKED,	self.OnEFXClicked,			self)
+
+    handler:AddCallback("btn_sample_1",		ui_events.BUTTON_CLICKED,	self.OnSample1Clicked,		self)
+    handler:AddCallback("btn_sample_2",		ui_events.BUTTON_CLICKED,	self.OnSample2Clicked,		self)
+    handler:AddCallback("btn_apply",		ui_events.BUTTON_CLICKED,	self.OnApplyClicked,		self)
+    handler:AddCallback("btn_testenv",		ui_events.BUTTON_CLICKED,	self.OnTestEnvClicked,		self)
+
+    handler:AddCallback("list_stereomode",	ui_events.LIST_ITEM_SELECT,	self.OnSModeDchanged,		self)
+	handler:AddCallback("check_hrtf",		ui_events.BUTTON_CLICKED,	self.OnClickHRTF,			self)
+end
+
+function opt_sound:UpdateControls()
+	self:update_device_support()
+end
+
+function opt_sound:Update()
+	if self.sample1_snd and self.sample1_snd:playing() then
+		local pos = self.sample1_snd:get_position()
+		local angle = pos:getH()
+		angle = angle - math.pi/500
+		if angle < -math.pi then
+			angle = math.pi
+		end
+		pos:setHP(angle,pos:getP())
+		self.sample1_snd:set_position(pos)
+	end
+end
+
+function opt_sound:clear()
+	if self.sample1_snd then
+		self.sample1_snd:stop()
+		self.sample1_snd = nil
+	end
+	if self.sample2_snd then
+		self.sample2_snd:stop()
+		self.sample2_snd = nil
+	end
+	if self.test_env_text then
+		get_console():execute("snd_set_user_env none")
+		self.btn_testenv:SetText(self.test_env_text)
+		self.test_env_id = nil
+		self.test_env_text = nil
+	end
+end
+
+function opt_sound:OnSndDchanged()
+	self:update_device_support()
+    if self.b_snd_restart_shown == false then
+        self.b_snd_restart_shown = true
+        self.handler.message_box:Init("message_box_restart_game")
+        self.handler:GetHolder():start_stop_menu(self.handler.message_box,true)
+    end
+end
+
+function opt_sound:OnSndEffectsClicked()
+	if self.cap_snd_eff:GetCheck() then
+		self:update_device_support()
+	else
+		self:clear()
+		self.btn_testenv:Enable(false)
+		self.cap_snd_eax:Enable(false)
+		self.cap_snd_efx:Enable(false)
+	end
+end
+
+function opt_sound:OnEAXClicked()
+	if self.cap_snd_efx:IsEnabled() then
+		self.cap_snd_efx:SetCheck(not self.cap_snd_eax:GetCheck())
+	else
+		self.cap_snd_eax:SetCheck(true)
+	end
+end
+
+function opt_sound:OnEFXClicked()
+	if self.cap_snd_eax:IsEnabled() then
+		self.cap_snd_eax:SetCheck(not self.cap_snd_efx:GetCheck())
+	else
+		self.cap_snd_efx:SetCheck(true)
+	end
+end
+
+local samples = {'anomaly\\buzz_idle','anomaly\\fireball_idle','monsters\\poltergeist\\tele_idle_0','alexmx\\helicopter','car\\car_traktor'}	-- car\\trabantnoise
+function opt_sound:OnSample1Clicked()
+	if not self.sample1_snd then
+		math.randomseed(os.time())
+		local s = samples[math.random(#samples)]
+--		logc("play sample %s",s)
+		self.sample1_snd = sound_object(s)
+	end
+	if self.sample1_snd:playing() then
+		self.sample1_snd:stop()
+		self.sample1_snd = nil
+	else
+		self.sample1_snd:play_at_pos(nil,vector():set(0,0,1),0,sound_object.s2d + sound_object.looped)
+	end
+end
+
+function opt_sound:OnSample2Clicked()
+	if not self.sample2_snd then
+		self.sample2_snd = sound_object('sample')
+	end
+	self.sample2_snd:play(nil)
+end
+
+function opt_sound:OnApplyClicked()
+	if self.m_device_id ~= self.combo_snd_d:CurrentID() then
+		if self.b_snd_restart_shown == false then
+			self.b_snd_restart_shown = true
+			self.handler.message_box:Init("message_box_restart_game")
+		end
+		self.handler:GetHolder():start_stop_menu(self.handler.message_box,true)
+	end
+	self:apply_settings()
+end
+
+local envs = {'plant','long_corridor','bathroom','open_space','house','forest','none'}
+function opt_sound:OnTestEnvClicked()
+	if not self.test_env_text then
+		self.test_env_id = 0
+		self.test_env_text = self.btn_testenv:GetText()
+	end
+	self.test_env_id = (self.test_env_id == #envs) and 1 or self.test_env_id+1
+	get_console():execute("snd_set_user_env "..envs[self.test_env_id])
+	self.btn_testenv:SetText(self.test_env_id == #envs and self.test_env_text or envs[self.test_env_id])
+end
+
+function opt_sound:OnClickHRTF()
+	local enable = self.hrtf:GetCheck()
+	get_console():execute("snd_hrtf "..(enable and 1 or 0))
+	self.stereomode:Enable(not enable)
+	self.stereomode:Show(not enable)
+	self.crossfeed_cap:Show(not enable)
+	self.crossfeed:Enable(not enable)
+	self.crossfeed:Show(not enable)
+	self.hrtf_p:Enable(enable)
+	self.hrtf_p:Show(enable)
+	self.hrtf_p_cap:Show(enable)
+end
+
+function opt_sound:OnSModeDchanged()
+	local cf_enable = self.stereomode:CurrentID() == self.sm_cf_id and not self.hrtf:GetCheck()
+	self.crossfeed_cap:Show(cf_enable)
+	self.crossfeed:Enable(cf_enable)
+	self.crossfeed:Show(cf_enable)
+end
+
+function opt_sound:update_device_support()
+	local dev_id = self.combo_snd_d:CurrentID()
+	if self.m_device_id == nil then
+		self.m_device_id = dev_id
+	end
+	local eax = xrSound_test_support(0)
+	local efx = xrSound_test_support(1)
+	local eff = self.cap_snd_eff:GetCheck()
+	self.cap_snd_eax:Enable(eax and eff)
+	self.cap_snd_efx:Enable(efx and eff)
+	self.cap_snd_eff:Enable(efx or eax)
+	self.btn_testenv:Enable(eff and (efx or eax))
+	self.cap_snd_efx:SetCheck(not (eax and self.cap_snd_eax:GetCheck()))
+	local soft = xrSound_test_support(2)
+	local stereo = soft and xrSound_test_support(3)
+	self.stereomode:Enable(stereo)
+	self.hrtf:Enable(stereo)
+	self.hrtf_p:Enable(stereo)
+	self.crossfeed:Enable(stereo)
+	if soft then
+		self:OnClickHRTF()
+		self:OnSModeDchanged()
+	end
+	self.device_is_soft = soft and dev_id == self.m_device_id
+end
+
+function opt_sound:apply_settings()
+	if self.m_device_id ~= self.combo_snd_d:CurrentID() then
+		return
+	end
+	if self.cap_snd_eax:IsEnabled() and self.cap_snd_eax:GetCheck() then
+		get_console():execute("snd_switch_to_eax")
+	elseif self.cap_snd_efx:IsEnabled() and self.cap_snd_efx:GetCheck() then
+		get_console():execute("snd_switch_to_efx")
+	end
+	if self.device_is_soft then
+		get_console():execute("snd_apply_soft_attribs")
+	end
+	get_console():execute("snd_efx "..(self.cap_snd_eff:GetCheck() and 1 or 0))
+end
+
+class "opt_gameplay" (CUIWindow)
+
+function opt_gameplay:__init() super()
+end
+
+function opt_gameplay:__finalize()
+
+end
+
+function opt_gameplay:InitControls(x, y, xml, handler)
+    self:Init(x,y, 738, 416)
+    self:SetAutoDelete(true)
+
+    self.bk = xml:InitFrame("frame_gameplay",self)
+
+    xml:InitStatic("tab_gameplay:cap_difficulty",self)
+
+    xml:InitCheck("tab_gameplay:check_tips",self)
+    xml:InitCheck("tab_gameplay:check_crosshair",self)
+    xml:InitCheck("tab_gameplay:check_dyn_crosshair",self)
+    xml:InitCheck("tab_gameplay:check_show_weapon",self)
+    xml:InitCheck("tab_gameplay:check_dist",self)
+    xml:InitCheck("tab_gameplay:check_cod_pickup",self)
+    xml:InitCheck("tab_gameplay:check_auto_reload",self)
+    xml:InitComboBox("tab_gameplay:list_difficulty",self)
+end
+
+class "opt_controls" (CUIWindow)
+
+function opt_controls:__init() super()
+end
+
+function opt_controls:__finalize()
+
+end
+
+function opt_controls:InitControls(x, y, xml, handler)
+
+    self:Init(x,y, 738, 416)
+    self:SetAutoDelete(true)
+
+    self.bk = xml:InitFrame("frame", self)
+
+    xml:InitStatic        ("tab_controls:cap_mousesens",        self)
+    xml:InitLabel        ("tab_controls:cap_keyboardsetup",    self)
+    xml:InitLabel        ("tab_controls:cap_keyboardsetup",    self)
+    xml:InitTrackBar    ("tab_controls:track_mousesens",    self)
+    xml:InitCheck        ("tab_controls:check_mouseinvert",    self)
+    xml:InitKeyBinding    ("tab_controls:key_binding",        self)
+
+    local btn
+    btn = xml:Init3tButton("tab_controls:btn_default", self)
+    handler:Register(btn, "btn_keyb_default")
+
+
+end
+
+class "opt_video_adv" (CUIWindow)
+
+function opt_video_adv:__init() super()
+end
+
+function opt_video_adv:__finalize()
+end
+
+function only_2_mode(ctrl, _id)
+    local bEnabled    = _id==1
+    ctrl:Enable        (bEnabled)
+end
+
+function only_12_mode(ctrl, _id)
+    local bEnabled    = _id==0 or _id==1
+    ctrl:Enable        (bEnabled)
+end
+
+function opt_video_adv:InitControls(x, y, xml, handler)
+    local ctl
+    self:Init                                    (x,y, 738, 416)
+    self:SetAutoDelete                            (true)
+
+    self.bk            = xml:InitFrame                ("frame_videoadv", self)
+    self.scroll_v    = xml:InitScrollView        ("video_adv:scroll_v", self)
+
+
+    local _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_60hz",                    _st)
+    xml:InitCheck                                ("video_adv:check_60hz",                _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_vsync",                    _st)
+    xml:InitCheck                                ("video_adv:check_vsync",                _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_particles_distance",    _st)
+    ctl                = xml:InitTrackBar            ("video_adv:track_particles_distance",    _st)
+    handler.m_preconditions[ctl]        = only_12_mode
+
+    _st                                            = xml:InitStatic                        ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_npc_torch",                _st)
+    xml:InitCheck                                ("video_adv:check_npc_torch",            _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_light_distance",        _st)
+    ctl                = xml:InitTrackBar            ("video_adv:track_light_distance",        _st)
+    handler.m_preconditions[ctl]        = only_12_mode
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_r2_sun_details",        _st)
+    ctl            = xml:InitCheck        ("video_adv:check_r2_sun_details",        _st)
+    handler.m_preconditions[ctl]        = only_2_mode
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_r2_sun",                _st)
+    ctl            = xml:InitCheck                    ("video_adv:check_r2_sun",                _st)
+    handler.m_preconditions[ctl]        = only_2_mode
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_ssample",                _st)
+    xml:InitTrackBar                            ("video_adv:track_ssample",                _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_aniso",                    _st)
+    xml:InitTrackBar                            ("video_adv:track_aniso",                _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_texture_lod",            _st)
+    xml:InitTrackBar                            ("video_adv:track_texture_lod",            _st)
+
+    -- KD addition start
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_bloodmarks",            _st)
+    xml:InitCheck                                ("video_adv:check_bloodmarks",            _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_soft_particles",        _st)
+    ctl                = xml:InitCheck                ("video_adv:check_soft_particles",        _st)
+    handler.m_preconditions[ctl]                = only_2_mode
+    --// Karlan
+    --// TODO: Karlan: надо TabControl в движке переделать для корректного использования
+    --// upd: какая-то шляпа, лень переделывать, воткнул в пресеты
+	-- _st = xml:InitStatic("video_adv:templ_item", self.scroll_v)
+	-- _st:SetWndSize(vector2():set(_st:GetWidth(), 106))
+	-- xml:InitStatic("video_adv:cap_ao", _st)
+	-- ctl = xml:InitComboBox("video_adv:radio_tab_ao_options", _st)
+	-- handler.m_preconditions[ctl]                = only_2_mode
+	_st = xml:InitStatic("video_adv:templ_item", self.scroll_v)
+	xml:InitStatic("video_adv:cap_ssao", _st)
+	ctl = xml:InitComboBox("video_adv:combo_ssao", _st)
+--	handler.m_preconditions[ctl]                = only_2_mode
+    -- KD addition
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_soft_water",            _st)
+    ctl                = xml:InitCheck                ("video_adv:check_soft_water",            _st)
+    handler.m_preconditions[ctl]                = only_2_mode
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_true_sun_shadows",        _st)
+    ctl                = xml:InitCheck                ("video_adv:check_true_sun_shadows",    _st)
+    handler.m_preconditions[ctl]                = only_2_mode
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_parallax",                _st)
+    ctl                = xml:InitComboBox            ("video_adv:list_parallax",                _st)
+    handler.m_preconditions[ctl]                = only_2_mode
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_detail_radius",            _st)
+    xml:InitTrackBar                            ("video_adv:track_detail_radius",        _st)
+    -- KD addition end
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_detail_density",        _st)
+    xml:InitTrackBar                            ("video_adv:track_detail_density",        _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_geometry_lod",            _st)
+    xml:InitTrackBar                            ("video_adv:track_geometry_lod",        _st)
+
+    _st                = xml:InitStatic            ("video_adv:templ_item",                self.scroll_v)
+    xml:InitStatic                                ("video_adv:cap_vis_dist",                _st)
+    xml:InitTrackBar                            ("video_adv:track_vis_dist",            _st)
+
+    btn                = xml:Init3tButton            ("video_adv:btn_to_simply",    self)
+    handler:Register                            (btn, "btn_simply_graphic")
+end

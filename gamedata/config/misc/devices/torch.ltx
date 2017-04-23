@@ -1,0 +1,34 @@
+[device_torch]:inventory_item_object
+$spawn                = "devices\torch"
+class                = TORCH_S
+visual                = equipments\light_night.ogf
+description            = enc_equipment_devic_device-torch1
+cost                = 100
+inv_name            = device-torch
+inv_name_short        = device-torch
+inv_weight            = 0.15
+inv_volume            = 0.1
+inv_grid_width        = 2
+inv_grid_x            = 16
+inv_grid_y            = 12
+
+position            = 0.35,0.25,0.0
+light_trace_bone    = cone_bone
+attach_position_offset    = 0.115, 0.00, 0.07
+
+;--// Karlan: добавляем звуки вкл/выкл фонаря
+snd_torch_on            = interface\lightnight_on
+snd_torch_off            = interface\lightnight_off
+
+night_vision                = on
+night_vision_texture        = wpn\wpn_night
+night_vision_effector        = postprocess_night
+
+snd_night_vision_on            = weapons\nv_start
+snd_night_vision_off        = weapons\nv_off
+snd_night_vision_idle        = weapons\nv_loop
+snd_night_vision_broken        = weapons\nv_off
+
+slot                                = 9
+;--// Karlan: это карты, на которых играет звук сломанного ПНВ, на остальных не играет, WTF?!
+disabled_maps                        = ai_test,ai_test2, andy_test_ 

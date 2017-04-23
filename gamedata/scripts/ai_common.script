@@ -1,0 +1,141 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_common.script
+ Description: Поддержка дополнительных секций логики
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan, Rulix
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and true --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Common evaluators
+--//-----------------------------------------------------------------------------------------------
+local ev_common = {
+    -- Ёвалюаторы, которые имеют высший приоритет, и, соответственно, перебивают остальные скрипты собой
+    [1] = { evaluators_id.sidor_wounded_base,      false }, --// не ранен
+    [2] = { evaluators_id.chugai_heli_hunter_base, false }, --// не видит вертолетов
+    [3] = { evaluators_id.abuse_base,              false }, --// не обижен
+    [4] = { evaluators_id.stohe_meet_base+1,       false }, --// не болтает
+}
+function add_common_property(property)
+    if type(property) == 'table' then
+        table.insert(ev_common,property)
+    end
+end
+function add_common_precondition(action)
+    for _,v in ipairs(ev_common) do
+        action:add_precondition(world_property(v[1],v[2]))
+    end
+end
+------------------------------------events-------------------------------------
+function issue_event(st,name,...)
+	for obj,_ in pairs(st.events) do
+		if obj[name] then
+			obj[name](obj,...)
+		end
+	end
+end
+
+function subscribe_for_events(npc_id,obj)
+	db.storage[npc_id].events[obj] = true
+end
+
+function unsubscribe_from_events(npc_id,obj)
+	local events = db.storage[npc_id].events
+	if events then
+		events[obj] = nil
+	end
+end
+------------------------------------ai storage-------------------------------------
+get_storage = {__call = function(t,n) if t[n]==nil then t[n] = {} end return t[n] end}
+--//-----------------------------------------------------------------------------------------------
+--// use stalker by actor
+--//-----------------------------------------------------------------------------------------------
+function notify_on_use(victim, who) --// Можем ли мы юзать сталкера?
+    printf("[notify_on_use]:[%s] used by [%s]", victim:name(), who:name())
+    --// Согласны ли мы говорить при этом юзании или нет.
+    if not victim:is_talk_enabled()then
+        if victim:active_sound_count() ~= 0 then return end
+        if not ai_abuse.is_abuse(victim) then return end
+        --// Мы не согласны говорить
+        if victim:best_enemy() then
+            if victim:relation(actor) ~= game_object.enemy then
+                --// Во время боя
+                m_sound.set_sound_play(victim, "use_no_fight")
+            end
+        elseif ai_wounded.is_wounded(victim) then
+            --// Юзание раненого
+        elseif ai_sleeper.is_npc_asleep(victim) then
+            --// Юзание спящего
+            m_sound.set_sound_play(victim, "use_no_sleep")
+        elseif ai_meet.cannot_talk_by_weapon(victim) then
+            --// Необходимо спрятать оружие
+            m_sound.set_sound_play(victim, "use_no_weapon")
+            ai_abuse.add_abuse(victim, 1)
+--        elseif db.storage[victim:id()].active_scheme == "kamp" then
+            --// Юзание чувака в лагере
+        else
+            --// Дефолт
+            m_sound.set_sound_play(victim, "use_no_default")
+            ai_abuse.add_abuse(victim, 1)
+        end
+    end        
+end
+--//-----------------------------------------------------------------------------------------------
+--// STALKER NPC INFO
+--//-----------------------------------------------------------------------------------------------
+function set_npc_info(npc, ini, scheme, section)
+    printf("INFO SECTION [%s]", section)
+    local in_info   = get_infos_from_data(npc, cfg_get_string(ini, section, "in"))
+    local out_info  = get_infos_from_data(npc, cfg_get_string(ini, section, "out"))
+    local max_index = (#in_info > #out_info) and #in_info or #out_info
+    for i=1, max_index do
+        if is_string(in_info[i]) then npc:give_info_portion(in_info[i]) end
+        if is_string(out_info[i]) then npc:disable_info_portion(out_info[i]) end
+    end
+end
+function get_infos_from_data(npc, s)
+    printf("get_infos_from_data [%s]", s)
+    local t = {}
+    if s then
+        for name in s:gmatch('[^%|]+') do
+           printf("[%s]", name)
+            local condlist = parse_condlist(name)
+            if condlist then
+                table.insert(t, xr_logic.pick_section_from_condlist(npc, condlist))
+            end
+        end
+    end
+    return t
+end
+--//-----------------------------------------------------------------------------------------------
+--// STALKER IGNORE MONSTER THRESHOLD
+--//-----------------------------------------------------------------------------------------------
+-- Вызывается на переключении на новую секцию. Производит вычитывание настроек из текущей секции.
+function reset_threshold(npc, scheme, st, section)
+    local threshold_section
+    if scheme == nil or scheme == "nil" then
+        threshold_section = cfg_get_string(st.ini, st.section_logic, "threshold", npc, false, "")
+    else
+        threshold_section = cfg_get_string(st.ini, section, "threshold", npc, false, "")
+    end
+    
+    printf("THRESHOLD SECTION [%s]:[%s]", threshold_section, npc)
+    if threshold_section then
+        local max_ignore_distance    = cfg_get_number(st.ini, threshold_section, "max_ignore_distance", npc, false)
+        if max_ignore_distance then
+            npc:max_ignore_monster_distance(max_ignore_distance)
+        else
+            npc:restore_max_ignore_monster_distance()
+        end
+        local ignore_monster        = cfg_get_number(st.ini, threshold_section, "ignore_monster", npc, false)
+        if ignore_monster then
+            npc:ignore_monster_threshold(ignore_monster)
+        else
+            npc:restore_ignore_monster_threshold()
+        end
+    end
+end

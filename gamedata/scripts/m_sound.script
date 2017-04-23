@@ -1,0 +1,427 @@
+--'-------------------------------------------------------------------------------------------------------------------
+--'	Схема озвучки
+--'	Автор:  Диденко Руслан (Stohe)
+--'	Доработка: Rulix aka Bak
+--'--------------------------------------------------------------------------------------------------------------------
+-- // TODO: реализовать поддержку списка путей path = p1,p2,p3 для не-нпс звуков
+
+_DEBUG_ = true --// file under debugging?
+
+sound_table = {}
+actor_sound = {}
+info_sounds = {}
+
+-- сохранение и загрузка info_sounds
+local save_info_sounds = {}
+local load_info_sounds = nil
+
+-- events
+function init()
+	sound_table = {}
+	actor_sound = {}
+    sound_object_by_theme = {}
+	m_sound_theme.load_themes()
+	event("presets"):register(presets)
+end
+function presets()
+--	event("npc_spawn"):register(npc_spawn)
+--	event("npc_update"):register(update)
+	event("npc_destroy"):register(net_destroy)
+	event("npc_death"):register(npc_death)
+	event("update_1st"):register(proceed_start)
+	event("actor_update"):register(actor_update, {__period = 200})
+--	event("actor_destroy"):register(stop_all_sound_object)
+	event("info_received"):register(proceed_info)
+end
+function npc_spawn(npc)
+	m_sound_theme.init_npc_sound(npc)
+end
+function net_destroy(t)
+	stop_sounds(t.obj,t.is_stalker and t.is_alive)
+end
+function npc_death(t)
+	stop_sounds(t.obj,true)
+end
+function proceed_info(e)
+	local is = info_sounds[e.info]
+	if is and e.actor then
+		-- for theme,cond in pairs(is) do
+			-- if cond == true or xr_logic.pick_section_from_condlist(actor,cond) ~= nil then
+				-- play_actor_sound(actor,theme,)
+			-- end
+		-- end
+		if is.cond == true or xr_logic.pick_section_from_condlist(actor,is.cond) ~= nil then
+			log("play info sound %s cb %s",is.theme,is.cb)
+			play_actor_sound(actor,is.theme,is.cb)
+			save_info_sounds[is.theme] = e.info
+		end
+	end
+end
+function proceed_start()
+	if not load_info_sounds then
+		return
+	end
+	for info,_ in pairs(load_info_sounds) do
+		local is = info_sounds[info]
+		if is then
+			log("load: play info sound %s cb %s",is.theme,is.cb)
+			play_actor_sound(actor,is.theme,is.cb)
+			save_info_sounds[is.theme] = info
+		end
+	end
+	load_info_sounds = nil
+end
+
+--// Проиграть звук от объекта. Только 1 звук одновременно, обновляться должен самим объектом
+function set_sound_play(npc,sound,cb,priority)
+--	log("SET_SOUND_PLAY. theme[%s] object[%s]", sound, npc)
+	if sound == nil or npc == nil then
+		-- затычка
+--		log("set_sound_play warning: npc %s sound %s",npc and npc:name(),sound)
+		return
+	end
+	local npc_id = npc:id()
+	local snd_theme = m_sound_theme.theme[sound] or m_sound_theme.group[sound]
+	if not snd_theme then
+		abort("set_sound_play. Wrong sound theme [%s], npc[%s]", sound, npc:name())
+	end
+	local current_theme = sound_table[npc_id]
+	if current_theme == nil or (priority or snd_theme.priority) > current_theme.priority then
+		if current_theme then
+			log("set_sound_play[%s] reset theme %s by %s (%s < %s)",npc:name(),current_theme.section,snd_theme.section,current_theme.priority,priority or snd_theme.priority)
+			current_theme:callback(npc)
+			current_theme:reset(npc)
+			sound_table[npc_id] = nil
+		end
+--		log("PLAY. theme[%s] object[%s]", sound, npc:name())
+		if snd_theme:play(npc) then
+--			log("-PLAY2. theme[%s] object[%s]", sound, npc_id)
+			snd_theme:set_callback(cb,npc_id)
+			sound_table[npc_id] = snd_theme
+			return true
+		end
+	else
+		if current_theme.section == sound then	-- уже играем нужную тему
+			snd_theme:set_callback(cb,npc_id)
+			return true
+		elseif snd_theme.scenario then
+			log("xr_sound: cannot play sound [%s] because i'm [%s] already play snd [%s](%s)",sound, npc_id, current_theme.section, current_theme.path)
+		end
+	end
+--	return sound_table[npc_id] and sound_table[npc_id].snd_obj
+end
+
+-- Проигрывает ли объект тему
+function current_sound(obj,priority)
+	local snd_theme = sound_table[obj:id()]
+	if snd_theme and (not priority or priority >= snd_theme.priority) then
+		return snd_theme
+	end
+end
+
+-- Прекратить/отменить проигрывание текущей темы
+function stop_sound_play(obj,priority)
+	local obj_id = obj:id()
+	local snd_theme = sound_table[obj_id]
+	if snd_theme and (not priority or priority >= snd_theme.priority) then
+--		log("stop_sound_play %s. object[%s] priority %s",snd_theme.section,obj,priority)
+		snd_theme:stop(obj)
+		snd_theme:callback(obj)
+		sound_table[obj_id] = nil
+	end
+end
+
+-- Прекратить воспроизведение и удалиться
+function stop_sounds(obj,is_npc)
+	local obj_id = obj:id()
+	local snd_theme = sound_table[obj_id]
+	if snd_theme and snd_theme.stop then
+		snd_theme:stop(obj,true)
+		sound_table[obj_id] = nil
+	end
+	if is_npc then
+		for _,t in pairs(m_sound_theme.theme) do
+			if t.npc then
+				t.npc[obj_id] = nil
+				if t.inited then
+					t.inited[obj_id] = nil
+				end
+			end
+		end
+	end
+end
+
+-- Зарубить все звуки сразу
+function stop_all_sounds()
+	for id,snd_theme in pairs(sound_table) do
+		snd_theme:stop()
+	end
+	for s,snd_theme in pairs(actor_sound) do
+		snd_theme:stop()
+	end
+end
+
+--// Звуки проигрываются параллельно и обновляются актором
+function play_actor_sound(npc,sound,cb,pos)
+	--log("SET_SOUND_PLAY. theme[%s] object[%s]", sound, npc)
+	if sound == nil or npc == nil then
+		-- затычка
+		log("play_actor_sound warning: npc %s sound %s",npc and npc:name(),sound)
+		return
+	end
+	local snd_theme = m_sound_theme.theme[sound] or m_sound_theme.group[sound]
+	if not snd_theme then
+		abort("play_actor_sound. Wrong sound theme [%s], npc[%s]", sound, npc)
+	end
+	local current_theme = actor_sound[sound]
+	if current_theme == nil then
+--		log("PLAY. theme[%s] object[%s]", sound, npc:name())
+		if snd_theme:play(npc,pos) then
+--			log("-PLAY2. theme[%s] object[%s]", sound, npc)
+			snd_theme:set_callback(cb,npc:id())
+			actor_sound[sound] = snd_theme
+			return snd_theme.snd_obj
+		end
+	else	-- уже играем нужную тему
+		return snd_theme.snd_obj
+	end
+end
+
+-- апдейт звука вызывается из binder:update
+function update(npc,npc_id)
+	local snd_theme = sound_table[npc_id or npc:id()]
+	if snd_theme then
+		if not snd_theme:is_playing(npc) then
+			--log("SOUND_CALLBACK from [%s] sound_path [%s]",npc_id,snd_theme.path)
+			snd_theme:callback(npc)
+			sound_table[npc_id] = nil
+		end
+	end
+end
+
+function actor_update()
+	local snd_theme = sound_table[actor_id]
+	if snd_theme and not snd_theme:is_playing() then
+		snd_theme:callback()
+		sound_table[actor_id] = nil
+	end
+	for s,snd_theme in pairs(actor_sound) do
+		if not snd_theme:is_playing() then
+			snd_theme:callback()
+			actor_sound[s] = nil
+			save_info_sounds[s] = nil
+		end
+	end
+end
+
+function save(pk)
+	-- // Rulix: зачем сохранять, кто какую тему сейчас играет? При загрузке все схемы сбросятся, вот и пускай заново запускают звук.
+--	pk.st = {}
+--	for id,sound in pairs(sound_table) do
+--		pk.st[id] = sound.section
+--	end
+	pk.td = {}
+	for section,sound in pairs(m_sound_theme.theme) do
+		pk.td[section] = sound:save()
+	end
+	pk.is = nil
+	if table.size(save_info_sounds) > 0 then
+		pk.is = table.values(save_info_sounds)
+	end
+end
+function load(pk)
+	if not pk then
+		return
+	end
+	if pk.td then
+		for section,sound in pairs(m_sound_theme.theme) do
+			sound:load(pk.td[section])
+		end
+	end
+	sound_table = {}
+--[[	for id,theme in pairs(pk.st or {}) do
+		sound_table[id] = m_sound_theme.theme[theme]
+	end]]
+	log("load: pk.is: %s",pk.is)
+	load_info_sounds = pk.is
+end
+
+--'--------------------------------------------------------------------------------------------------------------------
+--' класс для проигрывания звуков из конфига объекта
+--'--------------------------------------------------------------------------------------------------------------------
+class "dihud_sound"
+function dihud_sound:__init(section,name,typ,read_delay)
+	self.st = {}
+	self.type = typ
+	local inif = system_ini()
+	local k,sline = 0,name
+	while inif:line_exist(section,sline) do
+		k = k+1
+		self.st[k] = parse_list(inif,section,sline,nil,true)
+		if not read_delay then
+			self.st[k][3] = nil
+		end
+		sline = name..k
+	end
+end
+
+function dihud_sound:play(obj,pos,delay,volume)
+	local s = self.st[math.random(#self.st)]
+	if s and s[1] and s[1] ~= "" then
+		local snd = sound_object(s[1])
+		local dly = (delay or 0)+(s[3] or 0)
+		if pos then
+			snd:play_at_pos(obj,pos,dly,self.type or sound_object.s3d)
+		else
+			snd:play(obj,dly,self.type or sound_object.s3d)
+		end
+		if volume or s[2] then
+			snd.volume = (volume or 1)*(s[2] or 1)
+		end
+	end
+end
+
+--//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+--// Тут старый функционал для актора, вертолета, физ объектов и прочего
+--//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+--' Actor sound player
+local actor_sound = {}
+function set_actor_sound(sound)
+    printf("*ACTOR SND* try to change SND to [%s]", tostring(sound))
+    if actor_sound.theme ~= sound then
+        --' Туточки надобно распарсить имена тем в их id
+        if sound == nil then sound = "" end
+        actor_sound.theme = sound
+        actor_sound.begin = nil
+
+        this.set_actor_sound_factor(1)
+    end
+end
+
+function set_actor_sound_factor(factor)
+    local theme = m_sound_theme.actor_theme[actor_sound.theme]
+    if theme ~= nil then
+        actor_sound.min_snd = theme.min_snd * factor
+        actor_sound.max_snd = theme.max_snd * factor
+    end
+end
+
+function update_actor()
+    local theme = m_sound_theme.actor_theme[actor_sound.theme]
+    if theme == nil then return end
+
+    if table.getn(theme.sounds) == 0 then
+        return
+    end
+
+    if actor_sound.begin == nil or
+       time_global() - actor_sound.begin >= actor_sound.idle
+    then
+        actor_sound.begin = time_global()
+
+        --' Тут надо отыграть звук
+        local sound = theme.sounds[math.random(table.getn(theme.sounds))]
+        if sound ~= nil then
+            sound:play(actor, 0, sound_object.s2d)
+        end
+        actor_sound.idle = math.random(actor_sound.min_snd, actor_sound.max_snd)
+    end
+end
+
+
+--' Таблица для хранения созданных саунд обжектов.
+sound_object_by_theme = {}
+--' type = [random|seq|looped]
+function get_sound_object(theme, t_type)
+    if m_sound_theme.ph_snd_themes[theme] == nil then
+        abort("ph_snd_themes for theme %s", tostring(theme))
+        return
+    end
+
+    if sound_object_by_theme[theme] == nil then
+        sound_object_by_theme[theme] = {}
+    end
+
+    if t_type == nil then
+        t_type = "random"
+    end
+
+    --' Выбор следующего айдишника
+    local play_id = -1
+    local table_size = table.getn(m_sound_theme.ph_snd_themes[theme])
+    if sound_object_by_theme[theme].last_id == nil then
+        if t_type == "random" then
+            if table_size >= 2 then
+                play_id = math.random(1, table_size)
+            else
+                play_id = 1
+            end
+        else
+            play_id = 1
+        end
+    else
+        if t_type == "random" then
+            if table_size >= 2 then
+                play_id = math.random(1, table_size - 1)
+                if play_id >= sound_object_by_theme[theme].last_id then play_id = play_id + 1 end
+            else
+                play_id = 1
+            end
+        else
+            if sound_object_by_theme[theme].last_id < table_size then
+                play_id = sound_object_by_theme[theme].last_id + 1
+            else
+                if t_type == "looped" then
+                    play_id = 1
+                end
+            end
+        end
+    end
+
+    -- printf("SOUND_OBJECT: selected id [%s] for theme [%s], type [%s], size [%s]", tostring(play_id), tostring(theme), tostring(type), table_size)
+
+    if play_id == -1 then
+        return
+    end
+    --' Проверяем создан ли у нас соответствующий саунд обжект или его надо создать
+    if sound_object_by_theme[theme][play_id] == nil then
+        if type(m_sound_theme.ph_snd_themes[theme][play_id]) == "table" then
+            sound_object_by_theme[theme][play_id.."_r"] = get_safe_sound_object(m_sound_theme.ph_snd_themes[theme][play_id][1].."_r")
+            sound_object_by_theme[theme][play_id.."_l"] = get_safe_sound_object(m_sound_theme.ph_snd_themes[theme][play_id][1].."_l")
+        else
+            sound_object_by_theme[theme][play_id] = get_safe_sound_object(m_sound_theme.ph_snd_themes[theme][play_id])
+        end
+    end
+
+    sound_object_by_theme[theme].last_id = play_id
+
+    --' Возвращаем саунд обжект
+    if type(m_sound_theme.ph_snd_themes[theme][play_id]) == "table" then
+        return sound_object_by_theme[theme][play_id.."_r"], sound_object_by_theme[theme][play_id.."_l"]
+    else
+        return sound_object_by_theme[theme][play_id]
+    end
+end
+
+local sound_object_by_path = {}
+--' Обертка вокруг функции, возвращающий звуковой объект.
+function get_safe_sound_object(path)
+    if sound_object_by_path[path] == nil then
+        sound_object_by_path[path] = sound_object(path)
+    end
+    return sound_object_by_path[path]
+end
+
+--// example of call: m_sound.play_heli_snd(self.st, "damage", 3)
+local snd_cnt = {see_enemy = 7, hit = 9, damage = 4, death = 6}
+function play_heli_snd(st, snd_set, priority)
+    if not st.mute and (not st.snd_obj or not st.snd_obj:playing() or st.snd_priority < priority) then
+        if st.snd_obj then
+            st.snd_obj:stop()
+        end
+        st.snd_obj = m_sound.get_safe_sound_object("helicopter\\"..snd_set.."_"..math.random(snd_cnt[snd_set]))
+        st.snd_obj:play(actor, 0, sound_object.s2d)
+        st.snd_priority = priority
+    end
+end

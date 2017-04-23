@@ -1,0 +1,47 @@
+[detector_simple]:identity_immunities
+$spawn                 = "devices\detector_simple"
+$prefetch             = 32
+class                = D_SIMDET
+cform                = skeleton
+visual                = equipments\item_datchik1.ogf
+description            = enc_equipment_devic_detect1
+radius                = 10    ;15
+buzzer_radius            = 1.5
+slot                = 8
+ef_detector_type        = 1
+
+inv_name            = Detect1
+inv_name_short            = Detect1
+inv_weight            = 0.35
+inv_volume            = 0.1
+
+inv_grid_width            = 1
+inv_grid_height            = 1
+inv_grid_x            = 9
+inv_grid_y            = 14
+cost                = 2000    
+
+
+attach_angle_offset        = 3.080506,-1.493053,-1.202040   
+attach_position_offset        = 0.080000,0.021273,0.100000
+attach_bone_name        = bip01_r_hand
+auto_attach            = true ;false
+
+bone_name            = wpn_bone ;bip01_r_hand
+position_offset            = 0.0,0.0,0.0
+angle_offset            = 1.570790,1.570790,3.92699
+
+
+;описание распознаваемых детектором зон
+zone_class_1            = zone_radioactive
+zone_sound_1_           = detectors\geiger_1
+zone_sound_1_1          = detectors\geiger_2
+zone_sound_1_2          = detectors\geiger_3
+zone_sound_1_3          = detectors\geiger_4
+zone_sound_1_4          = detectors\geiger_5
+zone_sound_1_5          = detectors\geiger_6
+zone_sound_1_6          = detectors\geiger_1
+zone_sound_1_7          = detectors\geiger_1
+zone_sound_1_8          = detectors\geiger_1
+zone_min_freq_1         = 1
+zone_max_freq_1         = 20

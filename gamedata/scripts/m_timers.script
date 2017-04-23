@@ -1,0 +1,842 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_timers.script
+ Description: Система таймеров (быстрый, сохраняемый, визуальный, циклический)
+ Copyright  : 2011-2017 © Malandrinus, Prosectors Project
+ Author(s)  : Malandrinus
+ Update     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--[[
+Изменения по сравнению с ранее опубликованными версиями таймеров:
+- переведены на новое хранилище
+- написана оболочка для быстрого таймера с возможностью прямой передачи функции
+- в оболочку сохраняемого таймера добавлена возможность передачи прямой функции, при этом функция сохраняется (!)
+- создан циклический таймер с большим количеством настроек
+- добавлена функция рестарта таймера с возможностью изменения приоритета и вызова экшна
+]]
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+-------------------------------------------------------------------------------
+--| Quick Timers module                                                     |--
+-------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+--< базовый класс легковесного таймера для отслеживания произвольного события >--
+---------------------------------------------------------------------------------
+-- зависит от модуля сигналов m_signals. Используется динамическая подписка и отписка
+-- метода класса на событие периодической проверки
+-- Комментарии:
+-- 1. Наличие вашего конструктора обязательно. Вызов конструктора базового класса super(timeout) 
+--    нужен только если используется возможность завершения по таймауту.
+-- 2. При останове по таймауту действие, заданное методом action, выполнено не будет. Вместо 
+--    него выполнится действие, заданное taction
+-- 3. Пока таймер работает, можно остановить его работу принудительно так
+-- timer_object:stop()
+-- В этом случае действие также выполнено не будет.
+-- 6. Таймеров одного класса можно запускать несколько. Сколько именно, определяется 
+--    только памятью и резервами процессора
+-- 7. Эти таймеры в сейве не сохраняются. Это означает, что с их помощью можно отслеживать только 
+--    события, которые должны произойти "скоро", т.е. с гарантией до ближайшей загрузки 
+--    или перехода на другой уровень.
+-- 8. Частота срабатывания проверок регулируется параметром метода start. Если параметр не задан, 
+--    то таймер будет проверяться с частотой апдейтов биндера актора. Если параметр задан 
+--    и равен true, то проверки будут выполняться с низким приоритетом. Частота проверок при этом 
+--    будет зависеть от количества низкоприоритетных вызовов, завязанных на событие "on_update".
+--    Чем подписчиков больше, тем частота ниже. Это имеет смысл для проверок с низкой точностью
+--    измерения момента времени и относительно длительным интервалом.
+
+-- Пример 1 простейшего таймера, делающего что-то через заданное время после запуска:
+--class "simple_timer" (m_timers.quick_timer)
+--function simple_timer:__init(time) super(time)
+--end
+--function simple_timer:taction() -- наше действие по таймауту
+--   здесь что-то делаем по факту срабатывания таймера
+--end
+-- Использование:
+-- simple_timer(3000):start() -- сработает через три секунды
+-- simple_timer(3000):start(true) -- сработает через три секунды, но проверяться будет реже
+
+
+-- Пример 2 использования таймера для отслеживания удаления объекта из инвентаря:
+--class "release_watch_timer" (m_timers.quick_timer)
+--function release_watch_timer:__init(id) -- здесь решили не использовать таймаут
+--   self.client_id = id -- запомнили объект, за которым следим
+--end
+--function release_watch_timer:condition()
+--      return not level.object_by_id(self.client_id) -- сработает по исчезновению клиентского объекта
+--end
+--function release_watch_timer:action() -- наше действие
+--   здесь что-то делаем по факту ухода объекта в оффлайн
+--end
+-- Использование:
+-- alife():release(sobj, true)
+-- release_watch_timer(sobj.id):start()
+
+class "quick_timer"
+
+-- конструктор таймера в базовом классе
+function quick_timer:__init(timeout)
+    self.timeout = timeout
+end
+
+-- Запуск таймера, аргумент задаёт использование проверки с низким приоритетом
+function quick_timer:start(low_priority)
+    self.start_time = time_global()
+    if self.timeout then -- если при создании задавали таймаут
+        self.termination_time = self.start_time + self.timeout -- то запоминаем время останова
+    end
+    self.slot_desc = {signal = "on_actor_update", self = self, fun = self.aux_cond, queued = low_priority}
+    m_signals.get_mgr():subscribe(self.slot_desc)
+end
+
+-- времени прошло с момента запуска.
+-- возвращает два числа: в миллисекундах и относительное от 0 до 1
+function quick_timer:elapsed()
+    --ASSERT(self.termination_time, "[quick_timer:elapsed] cannot calculate elapsed time for non time-based timer")
+    local elapsed = time_global() - self.start_time
+    local fe
+    if self.termination_time then
+        fe = elapsed / (self.termination_time - self.start_time)
+    end
+    return elapsed, fe
+end
+
+-- функция принудительного останова, никаких действий при этом не выполняется
+function quick_timer:stop()
+    m_signals.get_mgr():unsubscribe(self.slot_desc)
+end
+
+-- проверка в базовом классе таймера обеспечивает сервис остановки по таймауту
+-- и возможность принудительной остановки
+function quick_timer:aux_cond()
+    self:update()
+    if self.termination_time and time_global() > self.termination_time then -- если сработал таймаут
+        self:taction() -- выполняем действие по таймауту
+        self:stop()    -- останавливаем проверки
+    elseif self:condition() then -- если сработало условие
+        self:action() -- выполняем действие по условия
+        self:stop()
+    end
+end
+-- условие-заглушка на случай использования только с таймаутом
+function quick_timer:condition()
+    return false
+end
+-- пустое действие в базовом классе. Нужно для того случая, 
+-- когда по каким-то причинам не задаём действие в унаследованном классе
+function quick_timer:action()
+end
+function quick_timer:taction() -- аналогичная заглушка для действия по таймауту
+end
+function quick_timer:update() -- заглушка для периодического действия
+end
+
+----------------------------------------------------------------------------------------------------
+--| Karlan->Malandrinus: позволил себе добавить оболочку и для "быстрого" таймера                |--
+--| Обёртка для упрощённого запуска таймера                                                      |--
+--| позволяет запустить простой таймер с временнОй задержкой,                                    |--
+--| который запускает заданную функцию, передавая её заданные параметры                          |--
+----------------------------------------------------------------------------------------------------
+class "quick_timer_wrapper" (quick_timer)
+function quick_timer_wrapper:__init(timeout) super(timeout)
+    self.timeout = timeout
+end
+function quick_timer_wrapper:init(action_name, ...)
+    self.action_name = action_name
+    if is_string(self.action_name) then
+        self.user_action = loadstring("return "..self.action_name.."(...)")
+    else
+        self.user_action = self.action_name
+    end
+    ASSERT(self.user_action, "quick_timer_wrapper:init: can not compile function with the name '"..tostring(self.action_name).."'")
+    self.fun_params = {...}
+    return self
+end
+function quick_timer_wrapper:condition()
+    return false
+end
+function quick_timer_wrapper:taction()
+    self.user_action(unpack(self.fun_params))
+end
+
+function start_quick_timer(timeout, fname, ...)
+    return quick_timer_wrapper(timeout):init(fname, ...):start()
+end
+
+-------------------------------------------------------------------------------
+--| Serializable Timers Manager                                             |--
+-------------------------------------------------------------------------------
+-- Использование сохраняемых (сериализуемых) таймеров в целом похоже на использование
+-- "быстрых" таймеров из модуля m_timers.script. Создаётся объект таймера, в нём 
+-- создаются методы условия и действия, он запускается и далее живёт своей жизнью,
+-- срабатывая по условию и выполняя в нужный момент заданное действие.
+-- Первое отличие от quick_timer в некоторых ограничениях при создании, связанных
+-- с необходимостью создавать объект класса таймера заново при загрузке.
+-- Второе отличие, в наличии методов save/load, в которых таймер может сохранить
+-- любые данные, необходимые ему для работы. Это могут быть как данные, необходимые для
+-- проверки условия, так и данные необходимые для выполнения действия.
+--
+-- Пример создания и использования простого таймера, использующего только
+-- временнОе условие:
+--[[
+class "test_timer" (m_timers.savable_timer)
+function test_timer:__init() super()
+    -- обязательная строка с именем класса таймера
+    self._class = script_name()..".test_timer"
+end
+-- метод для первичной инициализации, может иметь произвольное имя
+function test_timer:set_data(s)
+    self.str = s
+end
+-- перегруженные методы загрузки/сохранения пользовательских данных
+function test_timer:load(packet)
+    self.str = packet:r_stringZ()
+end
+function test_timer:save(packet)
+    packet:w_stringZ(self.str)
+end
+-- перегруженный метод действия по временнОму условию
+function test_timer:taction()
+    log1(self.str) -- что-то делаем в назначенное время
+end
+
+-- создание и запуск таймера
+local t = test_timer()
+t:set_data("some string")
+t:set_delay(600) -- сработает через 10 минут реального времени
+-- или
+--t:set_gdelay(600) -- сработает через 10 минут игрового времени
+-- или
+--t:set_gtime(game.CTime():set(...)) -- сработает в заданный момент игрового времени
+t:start() -- запустить с низким приоритетом (по умолчанию)
+-- или
+--t:start(true) -- запустить с высоким приоритетом (проверка на каждом апдейте)
+]]
+
+-- Пример таймера с произвольным условием. Следит за неким неписем, который
+-- когда-то может быть выйдет в онлайн:
+--[[
+class "conditional_timer" (m_timers.savable_timer)
+function conditional_timer:__init(timer_id) super(timer_id)
+    self._class = script_name()..".conditional_timer"
+end
+function conditional_timer:init(npc_id)
+    self.npc_id = npc_id
+    return self -- для вызова цепочкой
+end
+-- перегруженные методы загрузки/сохранения пользовательских данных
+function conditional_timer:load(packet)
+    self.npc_id = packet:r_u16()
+end
+function conditional_timer:save(packet)
+    packet:w_u16(self.npc_id)
+end
+function conditional_timer:condition()
+    self.npc = level.object_by_id(self.npc_id)
+    return self.npc
+end
+-- перегруженный метод действия по пользовательскому условию (имя метода action, а не taction !)
+function conditional_timer:action()
+    self.npc:kill(actor) -- что-то делаем при появлении чувака
+end
+
+-- создание таймера, инициализация и запуск с низким приоритетом
+conditional_timer("my_timer"):init(12345):start()
+get_timer("my_timer"):stop() -- передумали и остановили
+]]
+
+function attach(sm)
+    sm:subscribe({signal = "on_actor_load", fun = this.on_load})
+    sm:subscribe({signal = "on_actor_save", fun = this.on_save})
+end
+
+-- уникальный идентификатор для переменной со списком таймеров. НЕ МЕНЯТЬ!
+local root_guid = "{663A0135-0A8F-41D9-91BA-FCCBFD59B146}_root"
+-- уникальная базовая часть идентификатора таймеров. НЕ МЕНЯТЬ!
+local storage_guid = "{36881905-5863-4D7C-BB12-0ECAC401FE1A}"
+
+local registry = {} -- хранилище таймеров в памяти.
+-- 
+function delete_all_timers()
+    for id,timer in pairs(registry) do
+        timer:stop()
+    end
+end
+-- функция для получения уникального идентификатора для таймера
+local function get_free_id()
+    for i=0,65535 do
+        local id = tostring(i)
+        if not registry[id] then return id end
+    end
+    abort("m_timers.get_free_id: Can't find free id for timer!")
+end
+-- получить таймер по идентификатору
+function get_timer(id)
+    local timer = registry[id]
+    ASSERT(timer, "m_timers.get_timer: timer with id'"..id.."' doesn't exist")
+    return timer
+end
+-- проверка существования таймера
+function timer_exists(id)
+    return registry[id] ~= nil
+end
+local function packet2str(packet)
+    local saved_reading_pos = packet:r_tell()
+    local sbuf = {}
+    local i = 1
+    while not packet:r_eof() do
+        local b = packet:r_u8()
+        local s = string.format("%02x", b)
+        table.insert(sbuf, s)
+        i = i + 1
+    end
+    packet:r_seek(saved_reading_pos)
+    local result = table.concat(sbuf, '')
+    return result
+end
+local function str2packet(str)
+    local new_packet = net_packet()
+    new_packet:w_begin(123)
+    new_packet:r_seek(new_packet:w_tell()) -- в общем-то всегда будет 2, но типа так правильнее
+    --
+    for i=1,#str,2 do
+        local s = str:sub(i,i+1)
+        local b = tonumber(s, 16)
+        new_packet:w_u8(b)
+    end
+    return new_packet
+end
+
+-- загрузка всех таймеров
+function on_load()
+    local timers_list = _G.storage[root_guid] or {}
+    _G.storage[root_guid] = nil
+    for _,timer_id in ipairs(timers_list) do
+        local timer_storage_id = storage_guid.."_"..timer_id
+        local timer_chunk_str = _G.storage[timer_storage_id]
+        ASSERT(timer_chunk_str, "no data found for registered timer '%s'", tostring(timer_id))
+        local timer_chunk = str2packet(timer_chunk_str)
+        local timer_class = timer_chunk:r_stringZ()
+        
+        local f, msg = loadstring("return "..timer_class.."(...)")
+        ASSERT(f, msg)
+        local timer = f(timer_id)
+        timer:_aux_load(timer_chunk)
+        timer:start(timer._high_priority)
+        _G.storage[timer_storage_id] = nil
+    end
+end
+-- сохранение состояния всех таймеров
+function on_save()
+    local timers_list = {}
+    for timer_id,timer in pairs(registry) do
+        table.insert(timers_list, timer_id)
+    end
+    _G.storage[root_guid] = timers_list
+end
+-- запись CTime в пакет. 
+function w_CTime( p, t )
+    ASSERT(t, "[w_CTime] time is nil")
+    local Y, M, D, h, m, s, ms = t:get()
+    Y = Y - 2000
+    p:w_u8 ( Y )
+    p:w_u8 ( M )
+    p:w_u8 ( D )
+    p:w_u8 ( h )
+    p:w_u8 ( m )
+    p:w_u8 ( s )
+    p:w_u16( ms )
+end
+
+-- чтение CTime из пакета
+function r_CTime( p )
+    local Y, M, D, h, m, s, ms = p:r_s8(), p:r_u8(), p:r_u8(), p:r_u8(), p:r_u8(), p:r_u8(), p:r_u16()
+    local t = game.CTime()
+    t:set( Y + 2000,  M, D, h, m, s, ms)
+    return t
+end
+
+---------------------------------------------------------------------------------
+--< базовый класс сохраняемого таймера для отслеживания произвольного события >--
+---------------------------------------------------------------------------------
+
+class "savable_timer"
+
+-- конструктор таймера в базовом классе
+function savable_timer:__init(timer_id)
+    self._class = "error: it is forbidden to create instances of a base savable timer class!"
+    if timer_id then
+        ASSERT(tostring(timer_id),
+            "savable_timer:__init: custom id assigned to timer must be a string or be convertible to a string")
+        ASSERT(not timer_exists(timer_id), "savable_timer:__init: timer with the id '"..timer_id.."' already exists!")
+        self._id = tostring(timer_id)
+    else
+        self._id = get_free_id()
+    end
+end
+function savable_timer:_aux_load(packet)
+    self._high_priority = packet:r_bool()
+    self._cyclic = packet:r_bool()
+    -- загружаем сохранённое время срабатывания по шкале реальных и игровых секунд
+    local res_time = packet:r_float()
+    if res_time ~= 0 then
+        -- строго нулевое значение означает, что таймер реальных секунд не задан
+        self:set_delay(res_time)
+    end
+    self._cycle_period = packet:r_float() --// Karlan
+    local use_end_time = packet:r_bool()
+    if use_end_time then
+        -- загружаем игровое время срабатывания
+        self:set_gtime(r_CTime(packet))
+        self._game_cycle_period = packet:r_float()
+    end
+
+    -- загружаем игровое время запуска
+    self._start_time = r_CTime(packet)
+    
+    local cnt = packet:r_u16()
+    local cnt_const = packet:r_u16()
+    if cnt == 0 then --// Karlan: здесь может сохранится еще и инвалид, это надо учесть
+        self._cycle_cnt = -1
+        self._cycle_cnt_const = -1
+    else
+        self._cycle_cnt = cnt
+        self._cycle_cnt_const = cnt_const
+    end
+    -- загружаем данные пользователя, если есть
+    --// Karlan->Malandrinus: убрал, потому-что в обертках мы можем не пользоваться сохранением в пакет, а просто грязно писать напрямую в хранилище, соответственно r_eof даст true и метод попросту не вызовется, так что на конец пакета нужно проверять в самом таймере, либо всегда записывать излишек в виде одного байта, но в общем случае актуальность данной проверки утеряна
+    -- if not packet:r_eof() then
+        self:load(packet)
+    -- end
+end
+function savable_timer:_aux_save()
+    local timer_chunk = net_packet()
+    timer_chunk:w_begin(123)
+    timer_chunk:r_seek(2)
+    timer_chunk:w_stringZ(self._class)
+    timer_chunk:w_bool(self._high_priority)
+    timer_chunk:w_bool(self._cyclic)
+    -- сохранение времени срабатывания по шкале реального и игрового времени
+    -- включено в состав заголовка таймера.
+    -- сохраняем время до срабатывания по шкале реальных секунд
+    if self._residual_time then
+        -- вычисляем и пишем новое оставшееся до выполнения время
+        local remained_time = self._residual_time - self._time_from_loading
+        timer_chunk:w_float(remained_time)
+        timer_chunk:w_float(self._cycle_period) --// Karlan
+    else
+         -- строго нулевое значение будет означать, что таймер реальных секунд не задан
+        timer_chunk:w_float(0)
+        timer_chunk:w_float(0)
+    end
+    -- сохраняем игровое время срабатывания
+    if self._game_termination_time then
+        timer_chunk:w_bool(true)
+        w_CTime(timer_chunk, self._game_termination_time)
+        -- w_CTime(timer_chunk, self._game_cycle_period) --// Karlan
+        timer_chunk:w_float(self._game_cycle_period)
+    else
+        timer_chunk:w_bool(false)
+    end
+    -- сохраняем время запуска
+    w_CTime(timer_chunk, self._start_time)
+    
+    if math.is_positive(self._cycle_cnt) then
+        timer_chunk:w_u16(self._cycle_cnt)
+        timer_chunk:w_u16(self._cycle_cnt_const)
+    else
+        timer_chunk:w_u16(0)
+        timer_chunk:w_u16(0)
+    end
+    -- теперь сохраняем данные пользователя, если есть
+    self:save(timer_chunk)
+    _G.storage[storage_guid.."_"..self._id] = packet2str(timer_chunk)
+end
+-- задать точное время срабатывания в терминах игрового времени
+function savable_timer:set_gtime(t) -- аргумент - объект типа game.CTime
+    self._game_termination_time = game.CTime(t)
+    return self
+end
+--
+function savable_timer:get_start_time()
+    return game.CTime(self._start_time)
+end
+function savable_timer:get_end_time()
+    ASSERT(self._game_termination_time, "savable_timer:get_end_time: termination time is not defined!")
+    return game.CTime(self._game_termination_time)
+end
+function savable_timer:set_gdelayDHMS(d,h,m,s)
+    local delay = d*24*3600 + h*3600+m*60+s
+    self:set_gdelay(delay)
+    return self
+end
+-- задать задержку срабатывания от текушего времени в секундах игрового времени
+-- аргумент - задержка в секундах, тип float (дробная часть задаёт микросекунды)
+function savable_timer:set_gdelay(delay)
+    local period = self:set_period(false)
+    if math.is_positive(period) then
+        delay = period
+    end
+    local s,ms = math.modf(delay)
+    local t = game.CTime()
+    t:setHMSms(0,0,s,ms*1000)
+    self._game_termination_time = game.CTime(game.get_game_time() + t)
+    --// Karlan: _game_cycle_period очевидно лишняя переменная, поскольку два типа таймера в одно время существовать не могут то можно держать только _cycle_period, этого вполне будет достаточно, но это только так кажется, при привидении к такому виду начинаются чудеса
+    self._game_cycle_period = delay
+    t = nil
+    return self
+end
+-- задать задержку срабатывания от текушего времени в секундах реального времени
+-- аргумент - задержка в секундах, тип float
+function savable_timer:set_delay(delay)
+    local period = self:set_period(true)
+    if math.is_positive(period) then
+        delay = period
+    end
+    self._cycle_period = delay --// Karlan: вне зависимости о типа таймера нужно обязательно проставить переменные чтобы не гасить возможности ООП
+    self._residual_time = delay
+    self._loading_time = time_global()
+    self._time_from_loading = 0.0
+    return self
+end
+function savable_timer:set_delayDHMS(d,h,m,s)
+    local delay = d*24*3600 + h*3600+m*60+s
+    self:set_delay(delay)
+    return self
+end
+-- запустить таймер с указанием, в какую очередь поместить проверку
+-- в отличие от "быстрых" таймеров приоритет по умолчанию - низкий
+function savable_timer:start(high_priority)
+    self._start_time = self._start_time or game.get_game_time()
+    self._high_priority = high_priority
+    self._cond_slot_desc = {signal = "on_actor_update", self = self, fun = self._aux_cond, queued = not high_priority}
+    self._save_slot_desc = {signal = "on_actor_save", self = self, fun = self._aux_save}
+    local sm = m_signals.get_mgr()
+    sm:subscribe(self._cond_slot_desc)
+    sm:subscribe(self._save_slot_desc)
+    registry[self._id] = self
+    return self
+end
+-- останов таймера
+--// Karlan->ALL: stop_current_cycle это флажок остановки текущего цикла, сам таймер остается рабочим, такой своеобразный скип одного шага
+function savable_timer:stop(stop_current_cycle)
+    if stop_current_cycle then --// Karlan: это позволит использовать stop() для останова таймера в классе циклического таймера, что не нарушает оригинальной работы таймеров
+        if self._cyclic and self._cycle_cnt~=0 then
+            if self._cycle_cnt > 0 then self._cycle_cnt = self._cycle_cnt-1 end
+            if self._cycle_cnt == -1 or self._cycle_cnt > 0 then
+                if self._cycle_period and self._residual_time then
+                    self:set_delay(self._cycle_period)
+                end
+                if self._game_cycle_period and self._game_termination_time then
+                    self:set_gdelay(self._game_cycle_period)
+                end
+                return
+            end
+        end
+    end --// Karlan
+    m_signals.get_mgr():unsubscribe(self._cond_slot_desc)
+    m_signals.get_mgr():unsubscribe(self._save_slot_desc)
+    registry[self._id] = nil
+    local timer_storage_name = storage_guid.."_"..self._id
+    _G.storage[timer_storage_name] = nil
+end
+-- метод для внутреннего использования таймером
+function savable_timer:_aux_cond()
+    if self._game_termination_time and game.get_game_time() > self._game_termination_time then -- если сработал таймаут
+        log('game.get_game_time() = <%s> | self._game_termination_time = <%s> | [%s]', game.get_game_time(), self._game_termination_time,game.get_game_time() > self._game_termination_time and 'true' or 'false')
+        self:stop(true)    -- останавливаем проверки        
+        self:taction() -- выполняем действие по таймауту
+        return
+    elseif self._residual_time then
+        self._time_from_loading = 1.0e-3 * (time_global() - self._loading_time)
+        if self._time_from_loading > self._residual_time then
+            log('self._time_from_loading = <%s> | self._residual_time = <%s> | [%s]', self._time_from_loading, self._residual_time, self._time_from_loading > self._residual_time and 'true' or 'false')
+            self:stop(true)    -- останавливаем проверки        
+            self:taction() -- выполняем действие по таймауту
+            return
+        end
+    end
+    if self:condition() then -- если сработало условие --// Karlan->ALL: чтобы остановить (исполнить) конкретный таймер из цикла придется немного извернуться, в переопределенном методе получать текущий исполняющийся цикл и в зависимости от фаз луны возвращать true, все достаточно просто и понятно, штатного метода не сделал специально
+        self:stop(true)    
+        self:action() -- выполняем действие по условия
+        return
+    end
+    self:on_update()
+end
+-- условие-заглушка на случай использования только с таймаутом
+function savable_timer:condition()
+    return false
+end
+function savable_timer:on_update()
+end
+-- пустые действия в базовом классе. Нужны для того случая, 
+-- когда не используем соответствующее действие в унаследованном классе
+function savable_timer:action() end
+function savable_timer:taction() end
+-- переопределять для сохранения/загрузки пользовательских данных
+function savable_timer:load(packet) end
+function savable_timer:save(packet) end
+
+--// Karlan ADDS:
+--// рестарт таймера с возможностями изменения приоритета и вызова действия
+function savable_timer:restart(high_priority, call_taction)
+    if self._residual_time then
+        self:set_delay(self._cycle_period)
+    end
+    if self._game_termination_time then
+        self:set_gdelay(self._game_cycle_period) --// циклическая переменная устанавливается всегда при создании любого таймера и содержит в себе переданное время в формате number, поэтому здесь рационально передать ее, нежели пилить лишние строки для CTime
+    end
+    if call_taction then
+        self:taction()
+    end
+    self._start_time = game.get_game_time()
+    self._high_priority = high_priority
+end
+
+--// Karlan: реализация циклического таймера:
+function savable_timer:cyclic(param) --// здесь стоит учитывать, что при вызове этой функции одно из значений затрется на дефолтовое, это специально так как параметры взаимоисключающие, при вызове без аргумента функция установит бесконечную цикличность
+    self._cyclic = true
+    self._cycle_cnt = -1
+    if is_boolean(param) then
+        self._cyclic = param
+    end
+    if math.is_positive(param) then
+        self._cycle_cnt = math.clamp(param, 1, INVALID_ID)
+        self._cycle_cnt_const = self._cycle_cnt
+    end
+    return self
+end
+function savable_timer:get_period()
+    if self._cycle_period then
+        return self._cycle_period --// это u32
+    end
+    if self._game_cycle_period then
+        return self._game_cycle_period --// это CTime
+    end
+    return nil
+end
+function savable_timer:get_cycle_number() --// понадобиться в тех случаях, когда каждый цикл это новая фаза или ступень в зависимости от которой меняется экшн/кондишн таймера
+    return self._cycle_cnt, (self._cycle_cnt_const-self._cycle_cnt)+1
+end
+function savable_timer:set_period(real_time) return -1 end --// Karlan: даем возможность юзеру поменять интервал циклического таймера в момент начала нового цикла
+----------------------------------------------------------------------------------------------------
+--| Обёртка для упрощённого запуска таймера                                                      |--
+--| позволяет запустить простой таймер с временнОй задержкой,                                    |--
+--| который запускает заданную функцию, передавая её заданные параметры                          |--
+----------------------------------------------------------------------------------------------------
+--// Karlan->Malandrinus: я переработал оболочку чтобы можно было передавать реальную функцию, там же изменил алгоритмы сохранения, теперь эта функция прекрасно сохранится
+class "delayed_fun_start" (savable_timer)
+function delayed_fun_start:__init(name) super(name)
+    self._class = script_name()..".delayed_fun_start"
+end
+function delayed_fun_start:init(action_name, ...)
+    self.action_name = action_name
+    if is_string(self.action_name) then
+        self.user_action = loadstring("return "..self.action_name.."(...)")
+    else
+        self.user_action = self.action_name
+    end
+    ASSERT(self.user_action, "delayed_fun_start:init: can not compile function with the name '"..tostring(self.action_name).."'")
+    self.fun_params = {...}
+    return self
+end
+function delayed_fun_start:load(packet)
+    local f = _G.storage[storage_guid.."_"..self._id.."_action_name"]
+    if is_function(f) then
+        self.action_name = f
+        self.user_action = self.action_name
+    else
+        self.action_name = packet:r_stringZ()
+        self.user_action = loadstring("return "..self.action_name.."(...)")
+    end
+
+    ASSERT(self.user_action, "delayed_fun_start:load: can not compile function with the name '"..tostring(self.action_name).."'")
+    
+    local storage_params_key = storage_guid.."_"..self._id.."_saved_params"
+    local array_item = _G.storage[storage_params_key]
+    ASSERT(type(array_item) == "table", "delayed_fun_start:load: wrong parameters readed")
+    self.fun_params = array_item
+    _G.storage[storage_params_key] = nil
+end
+function delayed_fun_start:save(packet)
+    if is_string(self.action_name) then
+        packet:w_stringZ(self.action_name)
+    else
+        _G.storage[storage_guid.."_"..self._id.."_action_name"] = self.action_name
+    end
+    local storage_params_key = storage_guid.."_"..self._id.."_saved_params"
+    _G.storage[storage_params_key] = self.fun_params
+end
+function delayed_fun_start:condition()
+    return false
+end
+function delayed_fun_start:taction()
+    self.user_action(unpack(self.fun_params))
+end
+
+function start_timer(name, delay, fname, ...)
+    return delayed_fun_start(name):set_delay(delay):init(fname, ...):start()
+end
+function start_gtimer(name, delay, fname, ...)
+    return delayed_fun_start(name):set_gdelay(delay):init(fname, ...):start()
+end
+------------------ таймер со счётчиком на экране --------------------------------
+class "visual_timer" (m_timers.delayed_fun_start)
+function visual_timer:__init(name) super(name)
+    self._class = script_name()..".visual_timer"
+end
+function visual_timer:start(...)
+    --
+    self.on_hud_show_desc = {signal = "on_hud_show", self = self, fun = self.on_hud_show}
+    m_signals.get_mgr():subscribe(self.on_hud_show_desc)
+    return m_timers.delayed_fun_start.start(self, ...)
+end
+function visual_timer:stop()
+    local hud = get_hud()
+    hud:RemoveCustomStatic("hud_timer_2")
+    hud:RemoveCustomStatic("hud_timer_text_2")
+    --
+    m_signals.get_mgr():unsubscribe(self.on_hud_show_desc)
+    m_timers.delayed_fun_start.stop(self, true) --// Karlan: для корректной возможности использования циклического визуального таймера
+end
+function visual_timer:on_hud_show()
+    local hud = get_hud()
+    if hud:GetCustomStatic("hud_timer_2") then
+        hud:RemoveCustomStatic("hud_timer_2")
+    end
+    hud:AddCustomStatic("hud_timer_2", true)
+    if hud:GetCustomStatic("hud_timer_text_2") then
+        hud:RemoveCustomStatic("hud_timer_text_2")
+    end
+    hud:AddCustomStatic("hud_timer_text_2", true)
+end
+function visual_timer:on_update()
+    local dt
+    if self._game_termination_time then
+        dt = self._game_termination_time:diffSec(game.get_game_time())
+    elseif self._residual_time and self._residual_time > 0 then
+        dt =  self._residual_time - self._time_from_loading
+    else
+        abort("visual_timer:condition: can not update time visual. Time condition is not set.")
+    end
+    local h = math.floor(dt/3600)
+    local m = math.floor(dt/60 - h*60)
+    local s = math.floor(dt - h*3600 - m*60)
+    local txt = string.format("%02d:%02d:%02d", h, m, s)
+    local hud = get_hud()
+    hud:AddCustomStatic("hud_timer_2", true)
+    local st_text = hud:AddCustomStatic("hud_timer_text_2", true)
+    if st_text then
+        st_text:wnd():SetText(txt)
+    end
+end
+------------------ таймер со счётчиком на экране и дополниельным условием останова -----------------
+class "conditional_visual_timer" (visual_timer)
+function conditional_visual_timer:__init(name) super(name)
+    self._class = script_name()..".conditional_visual_timer"
+end
+function conditional_visual_timer:init(cond_name, action_name, ...)
+    self.cond_name = cond_name
+    self.user_condition = loadstring("return "..self.cond_name.."(...)")
+    ASSERT(self.user_condition, "conditional_visual_timer:init: can not compile function with the name '"..tostring(self.cond_name).."'")
+    return m_timers.delayed_fun_start.init(self, action_name, ...)
+end
+function conditional_visual_timer:condition()
+    visual_timer.condition(self) -- всегда возвращает false
+    return self.user_condition(unpack(self.fun_params))
+end
+function conditional_visual_timer:load(packet)
+    self.cond_name = packet:r_stringZ()
+    self.user_condition = loadstring("return "..self.cond_name.."(...)")
+    ASSERT(self.user_condition, "conditional_visual_timer:load: can not compile function with the name '"..tostring(self.cond_name).."'")
+    m_timers.delayed_fun_start.load(self, packet)
+end
+function conditional_visual_timer:save(packet)
+    packet:w_stringZ(self.cond_name)
+    m_timers.delayed_fun_start.save(self, packet)
+end
+
+----- обёртки для классов таймеров с визуальным счётчиком --------------------------------
+-- только по времени
+function start_visual_timer(name, delay, fname, ...)
+    return visual_timer(name):set_delay(delay):init(fname, ...):start(true)
+end
+function start_visual_gtimer(name, delay, fname, ...)
+    return visual_timer(name):set_gdelay(delay):init(fname, ...):start(true)
+end
+-- с дополнительным условием останова
+function start_conditional_visual_timer(name, delay, cond_name, act_name, ...)
+    return conditional_visual_timer(name):set_delay(delay):init(cond_name, act_name, ...):start(true)
+end
+function start_conditional_visual_gtimer(name, delay, cond_name, act_name, ...)
+    return conditional_visual_timer(name):set_gdelay(delay):init(cond_name, act_name, ...):start(true)
+end
+
+--//-----------------------------------------------------------------
+--// Description: функция создания окна сообщения, которое закроется само через определённое время
+--//-----------------------------------------------------------------
+function autohiding_msg(txt, delay)
+    local dlg = MonologueMsg(txt)
+    level.start_stop_menu(dlg, true)
+    autohide_dlg_timer(delay, dlg):start()
+end
+
+-- окно "монологового" типа. Просто сообщение в рамке.
+-- Закрыть можно по ESC. Также можно использовать в комбинации с
+-- таймером автозакрытия (см. MonologueMsg и ф-ю autohiding_msg)
+class "MonologueMsg" (CUIScriptWnd)
+
+function MonologueMsg:__init(txt) super()
+    local xml = CScriptXmlInit()
+    
+    local file = is_widescreen() and "ui_monologue_msg_16.xml" or "ui_monologue_msg.xml"
+    xml:ParseFile(file)
+    
+    xml:InitWindow("main", 0, self)
+    self.msg = xml:InitStatic("main:msg", self)
+    self.msg:SetTextST(txt)
+    self.dlg = self -- трюк для предотвращения вылета.
+    -- Чтобы не было утечки памяти после закрытия окна надо обнулить эту ссылку
+    -- (см. метод OnKeyboard и также метод срабатывания спец. таймера)
+end
+function MonologueMsg:OnKeyboard(dik, key_act) CUIScriptWnd.OnKeyboard(self,dik,key_act)
+    if key_act == ui_events.WINDOW_KEY_PRESSED and dik == DIK_keys.DIK_ESCAPE then
+        self:GetHolder():start_stop_menu(self,true)
+        self.dlg = nil -- отпускаем объект для сборщика мусора
+    end
+    return true
+end
+-- служебный таймер для автоматического закрытия диалога через заданное время
+class "autohide_dlg_timer" (m_timers.quick_timer)
+function autohide_dlg_timer:__init(delay, dlg) super(delay)
+    self.dlg = dlg
+end
+function autohide_dlg_timer:taction()
+    if self.dlg and self.dlg:IsShown() then
+        level.start_stop_menu(self.dlg,true)
+        self.dlg.dlg = nil -- отпускаем объект для сборщика мусора
+    end
+end
+--//-----------------------------------------------------------------
+--// Оболочки
+--//-----------------------------------------------------------------
+local timers_shell = function()
+class "disable_input_timer" (m_timers.quick_timer)
+function disable_input_timer:__init(time) super(time) level.disable_input() end
+function disable_input_timer:taction() level.enable_input() end
+function _G.set_disable_input_time(time) disable_input_timer(time*1000):start() end
+
+class "hide_active_item_timer" (m_timers.quick_timer)
+function hide_active_item_timer:__init(time) super(time) actor:hide_weapon() end
+function hide_active_item_timer:taction() actor:restore_weapon() end
+function _G.set_hide_active_item_time(time) hide_active_item_timer(time*1000):start() end
+if PROSECTORS_DEBUG then
+_G.save_trigger = function(name) start_quick_timer(1000, function(name) get_console():execute('save '.. name) end, name) end
+end
+end
+function init()
+    event("presets"):register(timers_shell)
+end
+--//-----------------------------------------------------------------

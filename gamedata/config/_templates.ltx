@@ -1,0 +1,171 @@
+;--[[----------------------------------------------------------------------------------------------
+; File       : _templates.ltx
+; Description: конфигурации заготовок под секции с соблюдением иерархии классов
+; Copyright  : 2017 © Prosectors Project
+; Author     : Karlan
+;--]]----------------------------------------------------------------------------------------------
+
+;--[[------------------------
+; [inventory_item_object] - абсолютно любой инвентарный объект, по уму замена identity_immunities оригинала
+; [eatable_item] - подойдет для создания базовых секций всей еды, напитков и медикаментов
+;--]]------------------------
+    
+;--// class CInventoryItem :                  [inventory_item]
+;--//            public CAttachableItem,      NULL (секция inventory_item включает в себя ключи CAttachableItem)
+;--//            public CHitImmunity          [identity_immunities]
+    
+;--// class CInventoryItemObject :            [inventory_item_object]
+;--//            public CInventoryItem,       [inventory_item]
+;--//            public CPhysicItem           NULL
+
+;--// class CEatableItem :                    [eatable_item]
+;--//            public CInventoryItem        [inventory_item]
+
+;--// class CEatableItemObject :              [eatable_item]
+;--//            public CEatableItem,         [eatable_item]
+;--//            public CPhysicItem           NULL (грузит сразу CGameObject, а там только "потенциальная радиация", но с ней помоему никто не собирает, справедливости ради упомянул)
+    
+;--// class CBottleItem: public CFoodItem
+;--// class CAntirad: public CEatableItemObject
+;--// class CMedkit: public CEatableItemObject (бинт тоже CMedkit)
+;--// class CFoodItem: public CEatableItemObject
+
+;--// конфиги пишу исходя из переписанных классов в движке, теперь вся еда и медикаменты действительно равносильны (в ТЧ II_BOTL особенный)
+
+[hud_base]
+aim_hud_offset_pos			    = 0,0,0
+aim_hud_offset_rot              = 0,0,0
+
+aim_hud_offset_pos_16x9         = 0,0,0
+aim_hud_offset_rot_16x9         = 0,0,0
+
+gl_hud_offset_pos_16x9          = 0,0,0
+gl_hud_offset_rot_16x9          = 0,0,0
+
+gl_hud_offset_pos               = 0,0,0
+gl_hud_offset_rot               = 0,0,0
+
+lean_hud_offset_pos        = 0,0,0
+lean_hud_offset_rot        = 0,0,0
+
+[sect_identity_immunities]
+burn_immunity           = 1.0
+strike_immunity         = 1.0
+shock_immunity          = 1.0
+wound_immunity          = 1.0        
+wound_2_immunity        = 1.0
+radiation_immunity      = 1.0
+telepatic_immunity      = 1.0
+chemical_burn_immunity  = 1.0
+explosion_immunity      = 1.0
+fire_wound_immunity     = 1.0
+
+[identity_immunities]
+immunities_sect            = sect_identity_immunities
+use_aim_bullet             = false
+;hit_probability_factor    = 1.0 ; для оружия
+
+;--// это фейковая секция, из движка CInventoryItem никак не экспортирован
+[inventory_item]:identity_immunities
+; immunities_sect --// опицонально
+inv_name                  = "CInventoryItem"
+inv_name_short            = "CInventoryItemShort"
+description               = "CInventoryItemDescr"
+inv_weight                = 0.0
+inv_volume                = 0.0
+cost                      = 0.0
+inv_grid_width            = 1
+inv_grid_height           = 1
+inv_grid_x                = 0 ; todo: make dummy icon
+inv_grid_y                = 0
+attach_angle_offset       = 0, -3.14, 1.6
+attach_position_offset    = 0.105, 0.00, 0.085
+attach_bone_name          = bip01_head
+detach_on_death_prb       = 0
+;--// flags (опционально)
+;belt                     = false
+;default_to_ruck          = true
+;can_take                 = true
+;can_trade                = true
+;quest_item               = false
+;--//-------------- (optional)
+;item_remove_time         = 30000
+;sprint_allowed           = true
+;control_inertion_factor  = 1.0
+;cond_dec                 = 0.0
+; icon_name --// опицонально
+
+;--// II_ATTCH == CInventoryItemObject
+;--// поскольку это не атачабельный объект на самом деле, а инвентарный, то ему необходимы иммунитеты, иначе использовать его будет нельзя
+[inventory_item_object]:inventory_item
+cform                   = skeleton
+class                   = II_ATTCH
+
+
+[eatable_item]:inventory_item_object
+;--// SMedicineInfluenceValues
+eat_health                 = 0.0
+eat_psy_health             = 0.0
+eat_satiety                = 0.0
+eat_power                  = 0.0
+;eat_max_power             = 0.0
+eat_radiation              = 0.0
+;eat_alcohol               = 0.0
+wounds_heal_perc           = 0.0
+;apply_time_sec            = -1.0
+
+;--// eat_portions_num - единственное от eatable_item, в оригинальном ТЧ в нем содержатся все eat_ ключи
+eat_portions_num           = -1 
+
+;--// SBooster
+boost_time                   = 0.0
+;boost_max_weight             = 0.0
+;boost_health_restore         = 0.0
+;boost_power_restore          = 0.0
+;boost_radiation_restore      = 0.0
+;boost_bleeding_restore       = 0.0
+
+;boost_radiation_protection   = 0.0
+;boost_telepat_protection     = 0.0
+;boost_chemburn_protection    = 0.0
+
+;boost_burn_immunity          = 0.0
+;boost_shock_immunity         = 0.0
+;boost_radiation_immunity     = 0.0
+;boost_telepat_immunity       = 0.0
+;boost_chemburn_immunity      = 0.0
+;boost_strike_immunity        = 0.0
+;boost_wound_immunity         = 0.0
+;boost_explosion_immunity     = 0.0
+;boost_fire_wound_immunity    = 0.0
+
+;use_sound            = interface\inv_food
+
+
+[common_ph_friction_params_on_npc_death] ;Параметры для задания изменения трения в момент смерти персонажа
+
+ph_skeleton_collision_enabled       = false ; Включена ли коллизия тела
+
+ph_skeleton_airr_lin_factor         = 1.2   ;Сопротивление воздуха при линейном движении ;1.5
+ph_skeleton_airr_ang_factor         = 0.0   ;Сопротивление воздуха при угловом движении
+ph_skeleton_hinger_start            = 1.5   ;Стартовое значение трения в суставе
+ph_skeleton_hinger_end              = 1.0   ;Финальное значение трения в суставе
+ph_skeleton_ddelay                  = 10.0  ;Время изменения значения трения в суставе с момента создания шелла, сек
+
+ph_skel_fatal_impulse_factor        = 1.5   ;Коэффициент импульса смертельного удара
+ph_after_death_velocity_factor      = 1.0   ;Коэффициент изменения скорости тела при смерти
+ph_skel_shot_up_factor              = 0.15  ;Коэффициент поднятия вектора смертельного удара
+
+ph_skeleton_skin_friction_start     = 0.05  ;Стартовое значение трения для оболочки
+ph_skeleton_skin_friction_end       = 1.2   ;Финальное значение трения для оболочки
+ph_skeleton_skin_ddelay             = 4.0   ;Время изменения значения трения с момента создания шелла, сек.
+
+ph_character_have_wounded_state     = false ; имеет ли персонаж состояние раненый
+ph_skeleton_skin_ddelay_after_wound = 2.0   ;Время изменения значения трения с момента создания шелла, сек.(для персонажа после ранения)
+ph_pelvis_factor_low_pose_detect    = 0.3   ;длинна луча на коллизию с землёй из центра пелвиса
+                                            ;если коллизиться, то персонаж находиться в нижней позе(или ранен)(в этом случае для него задаються другие параметры 
+                                            ;трения и отсутствует домножение импульса для первого хита)
+
+
+[monster_base]:common_ph_friction_params_on_npc_death
+actor_hit_effect = effector_monster_hit

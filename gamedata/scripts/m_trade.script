@@ -1,0 +1,92 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_trade.script
+ Description: trade callbacks scheme
+ Copyright  : 200? © GSC Game World
+ Author(s)  : Andrey Fidrya (Zmey) af@svitonline.com
+ Edited     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--// Karlan->ALL: в движке переписал функционал коллбеков, теперь эту схему можно ставить не только торговцам, но и сталкерам
+--// TODO: Karlan->Karlan: объеденить с менеджером торговли, увести коллбеки в биндеры и через них дергать схему
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = true --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "trade_callback"
+function trade_callback:__init(obj, storage)
+    self.object = obj
+    self.st = storage
+end
+function trade_callback:storage_trade_section()
+    local trade = db.storage[self.object:id()].trade
+    if not trade then
+        trade = {}
+        db.storage[self.object:id()].trade = trade
+    end
+    return trade
+end
+function trade_callback:start_trade(zone, obj)
+    local trade = self:storage_trade_section()
+    trade.trading = true
+	trade.deal_good = false
+	trade.deal_bad = false
+	trade.buy_good = false
+	self.money_get = 0
+	self.money_put = 0
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then return end
+end
+function trade_callback:end_trade()
+    local trade = self:storage_trade_section()
+    trade.trading = false
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then return end
+end
+function trade_callback:on_perform_trade(money_get, money_put)
+    local trade = self:storage_trade_section()
+	trade.buy_good = money_put > 500	-- Неплохо, хоррроший товар
+	self.money_get = self.money_get + money_get
+	self.money_put = self.money_put + money_put
+	if self.money_put > 0 and self.money_put < 500 and self.money_get < self.money_put then
+		trade.deal_bad = true
+	elseif self.money_get >= 1000 or self.money_put >= 600 then
+		trade.deal_good = true
+	end
+    log('call trade_callback:on_perform_trade %s', time_global())
+    event("trade_perform"):trigger{obj=self.object,obj_id=self.object:id(),money_get=money_get,money_put=money_put,is_stalker=IsStalker(self.object),is_trader=IsTrader(self.object)}
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then return end
+end
+function trade_callback:on_terminate_trade()
+    log('call trade_callback:on_terminate_trade %s', time_global())
+--// Karlan->Karlan: по хорошему здесь нужно вызвать основные коллбеки, создать некое подобие наследования, а не городить двойной огород
+    event("trade_terminate"):trigger{obj=self.object,obj_id=self.object:id(),is_stalker=IsStalker(self.object),is_trader=IsTrader(self.object)}
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    local action = trade_callback(npc, storage)
+    storage.action = action
+    xr_logic.subscribe_action_for_events(npc, storage, action) --// Karlan: подпишем, мало-ли что тут дописать придется
+end
+function set_scheme(npc, ini, scheme, section, gulag_name)
+    local st = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+    st.logic = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+    npc:set_callback(callback.trade_start, st.action.start_trade, st.action)
+    npc:set_callback(callback.trade_stop, st.action.end_trade, st.action)
+    npc:set_callback(callback.trade_perform_operation, st.action.on_perform_trade, st.action)
+    npc:set_callback(callback.trade_terminate_operation, st.action.on_terminate_trade, st.action)
+end
+function disable_scheme(npc, scheme)
+    npc:set_callback(callback.trade_start, nil)
+    npc:set_callback(callback.trade_stop, nil)
+    npc:set_callback(callback.trade_perform_operation, nil)
+    npc:set_callback(callback.trade_terminate_operation, nil)
+    if IsStalker(npc) then --// Karlan->ALL: сюда всех у кого есть родные коллбеки
+        npc:set_callback(callback.trade_perform_operation, npc:binded_object().trade_perform_operation, npc:binded_object())
+        npc:set_callback(callback.trade_terminate_operation, npc:binded_object().trade_terminate_operation, npc:binded_object())
+    end
+end
+--//-----------------------------------------------------------------------------------------------

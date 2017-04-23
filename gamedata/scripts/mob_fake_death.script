@@ -1,0 +1,46 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : mob_fake_death.script
+ Description: fake death for zombie
+ Copyright  : 200? © GSC Game World
+ Author(s)  : Jim
+ Edited     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "mob_fake_death"
+function mob_fake_death:__init(obj, storage)
+    self.object = obj
+    self.st     = storage
+end
+function mob_fake_death:reset_scheme()
+    self.st.result = self.object:fake_death_fall_down()
+end
+function mob_fake_death:update(delta)
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then
+        return
+    end
+    if not self.st.result then
+        self.st.result = self.object:fake_death_fall_down()
+    end
+end
+function mob_fake_death:deactivate()
+    self.object:fake_death_stand_up()
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    xr_logic.subscribe_action_for_events(npc, storage, mob_fake_death(npc, storage))
+end
+function set_scheme(npc, ini, scheme, section, gulag_name)
+    local st        = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+    st.logic        = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+end
+--//-----------------------------------------------------------------------------------------------

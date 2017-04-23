@@ -1,0 +1,270 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : manager_treasure.script (from treasure_manager)
+ Description: Treasure handler
+ Copyright  : 2005 © GSC Game World
+ Author(s)  : GSC Game World 
+ Edited     : Karlan, Nazgool
+--]] ----------------------------------------------------------------------------------------------
+--// сделать кондлист для "перезагрузки" тайника
+--// сделать таблицу итемов, где вторым параметром - количество, третим - "состояние"
+--// сделать объемы тайников, todo: в движке ввести доп. свойство (для самих тайников), метод получения уже работает
+--// Karlan->Karlan: адаптировать правленный менеджер
+_DEBUG_ = true
+local pause = 0
+function respawn_spawn(sid) --// потестируем
+    if not is_number(sid) then return end --// Karlan: временная затычка, так как мы меняем строки на числа, и если там строка, то валим нафиг --// on delete [x]
+    local sobj = sim:story_object(sid)
+    assert(sobj, 'sobj')
+    local ini = sobj:spawn_ini()
+    if not ini:line_exist('respawn', 'respawn_section') then return end --/> почему-то попадают какие-то левые предметы
+    if pause > time_global() then return end
+    pause = time_global()+1000
+    local items = parse_spawns(ini:r_string('respawn','respawn_section'))
+    table.print(items, 'items of %s', sobj)
+    for i=1,#items do
+        local count = math.random(0, items[i].prob)
+        for j=0,count-1 do
+            sim:create(items[i].section, sobj.position, sobj.m_level_vertex_id, sobj.m_game_vertex_id, sobj.id)
+        end
+    end
+end
+
+
+local treasure_manager = nil
+
+local loaded = false
+
+class "CTreasure"
+function CTreasure:__init()
+    --' На конструкторе вычитываем LTX и создаем заготовки квестов.
+    self.ini = ini_file("misc\\manager_treasure\\treasure_manager.ltx")
+
+    --' Итерируемся по всем настройкам фраз
+    if not self.ini:section_exist("list") then
+        abort("There is no section [list] in treasure_manager.ltx")
+    end
+    local n = self.ini:line_count("list")
+    local id, value = "",""
+
+    --' начальная установка
+    self.treasure_info = {}
+
+    for i=0,n-1 do
+        result, id, value    = self.ini:r_line("list",i,"","")
+        
+        self.treasure_info[id] = {}
+
+        self.treasure_info[id].target        = cfg_get_number(self.ini, id, "target", nil, true)
+        self.treasure_info[id].name            = cfg_get_string(self.ini, id, "name", nil, true, "")
+        self.treasure_info[id].description    = cfg_get_string(self.ini, id, "description", nil, true, "")
+        self.treasure_info[id].items        = parse_spawns(cfg_get_string(self.ini, id, "items", nil, true, ""))
+
+        local community    = parse_names(cfg_get_string(self.ini, id, "community", nil, false, "", "stalker, bandit, dolg, freedom"))
+        self.treasure_info[id].community = {}
+        for k,v in pairs(community) do
+            self.treasure_info[id].community[v] = true
+        end
+
+
+        if self.treasure_info[id].items == nil then
+            abort("cant find 'items' in %s", id)
+        end
+
+        self.treasure_info[id].condlist        = parse_condlist(cfg_get_string(self.ini, id, "condlist", nil, false, "", ""))
+        
+        --' Отметим тайник как новый
+        self.treasure_info[id].active = false
+        self.treasure_info[id].done = false
+
+        --log1(table.tree(self.treasure_info))
+    end
+
+    --' Вспомогательные таблицы для облегчения поиска
+    self.treasure_by_target = {}
+    for k,v in pairs(self.treasure_info) do
+        self.treasure_by_target[v.target] = k    
+    end
+end
+--' Юзание инициатора (возможность выдать тайник)
+function CTreasure:use(npc)
+    printf("TREASURE USE")
+    local sobj = sim:object(npc:id())
+    if not sobj or sobj.treasure_processed then return end --// Karlan: а вот так вот да
+    sobj.treasure_processed = true
+    --' Нужно рандомно выбрать один из тайников.
+    local avail = {}
+    local tr_sum = 0
+    for k,v in pairs(self.treasure_info) do
+        if v.done == false then
+            local treasure_prob = xr_logic.pick_section_from_condlist(npc, v.condlist)
+
+            if treasure_prob == "" or treasure_prob == nil then
+                treasure_prob = 0
+            end
+
+            if tonumber(treasure_prob) >= 0 and v.community[npc:character_community()] == true and v.active == false then
+                if tonumber(treasure_prob) == 100 then
+                    self:give_treasure(k)
+                else
+                    table.insert(avail, {k = k, prob = treasure_prob})
+                    tr_sum = tr_sum + treasure_prob
+                end
+            end
+        end
+    end
+
+    if tr_sum == 0 or
+        math.random(100) < 65
+    then
+        return
+    end
+
+    local tr_w = math.random(tr_sum)
+    for k,v in pairs(avail) do
+        tr_w = tr_w - v.prob
+        if tr_w <= 0 then
+            --' Выдать тайник
+            self:give_treasure(v.k)
+            break
+        end
+    end
+end
+--' Сохранение
+function CTreasure:check()
+    --' Проверка тайников
+    for k,v in pairs(self.treasure_info) do
+        --' Выдать тайник
+        self:give_treasure(k)
+    end
+end
+--' Выдача тайника
+function CTreasure:give_treasure(k)
+    local v = self.treasure_info[k]
+    local obj = alife():story_object(v.target)
+    if obj ~= nil then
+        manager_news.send_treasure(v.name, false, game.translate_string(obj.level_name))
+
+        --' Пометить на карте        
+        local text = "%c[255,238,155,23]"..game.translate_string(v.name).."\\n".."%c[default]"..game.translate_string(v.description)
+        level.map_add_object_spot_ser(obj.id, "treasure", text)
+
+        --' Сгенерить вещи
+		local	pos = obj.position
+		local	lvid = obj.m_level_vertex_id
+		local	gvid = obj.m_game_vertex_id
+		local	pid = obj.id
+		for kk,vv in pairs(v.items) do
+			if ammo_sections[vv.section] then
+				local left, box_size = vv.prob, sini:r_u32(vv.section, "box_size")
+				while left > box_size do
+					sim:create_ammo(vv.section, pos, lvid, gvid, pid, box_size)
+					left = left - box_size
+				end
+				if left > 0 then
+					sim:create_ammo(vv.section, pos, lvid, gvid, pid, left)
+				end
+			else
+				for i=1,vv.prob do
+					sim:create(vv.section, pos, lvid, gvid, pid)
+				end
+			end
+		end
+		if obj.online then
+            sim:set_switch_online(pid, false)
+			sim:set_switch_offline(pid, true)
+            treasure_switcher(pid):start()
+		end
+		
+		--' Пометим тайник как выданный
+		self.treasure_info[k].active = true
+		self.treasure_info[k].done = true
+	else
+		printf("TREASURE %s, target doesnt exist", k)
+	end
+end
+
+--' Снимаем отметку с тайника
+function CTreasure:treasure_empty(box, box_story_id)
+    printf("!!! treasure empty")
+    local k = self.treasure_by_target[box_story_id]
+
+    if k == nil or self.treasure_info[k] == nil then 
+        return
+    end
+
+    self.treasure_info[k].active = false
+    level.map_remove_object_spot(box:id(), "treasure")
+end
+--' Сохранение
+function CTreasure:save(pk)
+    --' Сохраняем размер таблицы
+    --// Karlan: возможно упаковать в одномерный для повышения скорости?
+    local t = {}
+    -- for k,v in pairs(self.treasure_info) do
+        -- t[k] = {active = v.active, done = v.done}
+    -- end
+    --// одномерный
+    for k,v in pairs(self.treasure_info) do
+        table.insert(t, {treasure = k, active = v.active, done = v.done})
+    end
+    --table.print2(t, 'active done save')
+    pk.active_done = t
+    --//
+end
+--' Загрузка
+function CTreasure:load(pk)
+    --//
+    local t = pk.active_done
+    --table.print2(t, 'active done')
+    -- for k,v in pairs(t) do
+        -- self.treasure_info[k].active = v.active
+        -- self.treasure_info[k].done = v.done
+    -- end
+    --// одномерный
+    for i=1, #t do
+        self.treasure_info[t[i].treasure].active = t[i].active
+        self.treasure_info[t[i].treasure].done = t[i].done
+    end
+    --//
+end
+
+function get_manager_treasure()
+    if treasure_manager == nil then
+        treasure_manager = CTreasure()
+    end
+    return treasure_manager
+end
+
+function take_item_from_box(e)
+    if e.box:is_inv_box_empty() then
+        get_manager_treasure():treasure_empty(e.box, e.box:story_id())
+    end
+end
+
+class "treasure_switcher" (m_timers.quick_timer)
+function treasure_switcher:__init(id) self.box_id = id end
+function treasure_switcher:condition() return not level.object_by_id(self.box_id) end
+function treasure_switcher:action()
+    sim:set_switch_online(self.box_id, true)
+    sim:set_switch_offline(self.box_id, false)
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+local function presets()
+    event("item_take_from_box"):register(take_item_from_box)
+end
+--//-------------------------
+function init()
+    event("presets"):register(presets)
+end
+--//-----------------------------------------------------------------------------------------------
+--// Serialization module
+--//-----------------------------------------------------------------------------------------------
+function save(p)
+    get_manager_treasure():save(p)
+end
+function load(p)
+    get_manager_treasure():load(p)
+end
+--//-----------------------------------------------------------------------------------------------

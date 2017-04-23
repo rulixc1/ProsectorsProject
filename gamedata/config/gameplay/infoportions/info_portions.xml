@@ -1,0 +1,82 @@
+<?xml version='1.0' encoding="windows-1251"?>
+
+<game_information_portions>
+  <info_portion id="storyline_actor_start">
+    <task>storyline_eliminate_gunslinger</task>
+  </info_portion>
+
+  <info_portion id="global_dialogs">
+    <dialog>actor_break_dialog</dialog>
+  </info_portion>
+
+
+  <!-- special info portion that sends to actor when it use in-game UI (PDA, Inventory, etc)-->
+    
+    <info_portion id="ui_pda">
+		  <disable>ui_pda_hide</disable>
+    </info_portion>
+    <info_portion id="ui_pda_hide">
+		  <disable>ui_pda</disable>
+    </info_portion>
+  <!-- updated by Karlan + -->
+  <!-- добавил недостающие инфо (ui_pda_map), и пофиксил косяк, журнал был ивентами, а ивентов вообще не было -->
+  <!-- TODO: переделать выдачу инфо в движке или написать обвязку -->
+  <!-- !!! НЕ КОММЕНИТРОВАННЫЕ ХАЙДЫ ПДА НЕ ВЫДАЮТСЯ !!! -->
+  <info_portion id="ui_pda_map"></info_portion> <!-- план -->
+  <info_portion id="ui_pda_map_hide"></info_portion>
+
+  <info_portion id="ui_pda_events"></info_portion> <!-- задания -->
+  <info_portion id="ui_pda_events_hide"></info_portion>
+
+   <info_portion id="ui_pda_contacts"></info_portion> <!-- контакты -->
+   <info_portion id="ui_pda_contacts_hide"></info_portion>
+   
+   <info_portion id="ui_pda_map_local"></info_portion> <!-- план (Karlan->Karlan: вообще нужен теперь?) -->
+   
+
+   <info_portion id="ui_pda_news"><disable>ui_pda_news_hide</disable></info_portion> <!-- при открытии вкладки "история" --> <!-- починил, в движке не было -->
+   <info_portion id="ui_pda_news_hide"><disable>ui_pda_news</disable></info_portion> <!-- при закрытии вкладки "история" -->
+   
+   <info_portion id="ui_pda_diary"></info_portion> <!-- журнал -->
+   <info_portion id="ui_pda_diary_hide"></info_portion>
+      
+   
+   <info_portion id="ui_pda_encyclopedia"></info_portion> <!-- справка -->
+   <info_portion id="ui_pda_encyclopedia_hide"></info_portion>
+   
+   <info_portion id="ui_pda_actor_info"></info_portion> <!-- данные -->
+   <info_portion id="ui_pda_ranking"></info_portion> <!-- ранги -->
+  <!-- updated by Karlan - -->
+   
+   <info_portion id="ui_inventory">
+		<disable>ui_inventory_hide</disable>
+   </info_portion>
+   <info_portion id="ui_inventory_hide">
+		<disable>ui_inventory</disable>
+   </info_portion>
+
+    <info_portion id="ui_talk">
+		  <disable>ui_talk_hide</disable>
+    </info_portion>
+    <info_portion id="ui_talk_hide">
+		  <disable>ui_talk</disable>
+    </info_portion>
+
+    <info_portion id="ui_trade">
+		  <disable>ui_trade_hide</disable>
+    </info_portion>
+    <info_portion id="ui_trade_hide">
+		  <disable>ui_trade</disable>
+    </info_portion>
+
+    <info_portion id="ui_car_body">
+		  <disable>ui_car_body_hide</disable>
+    </info_portion>
+    <info_portion id="ui_car_body_hide">
+		  <disable>ui_car_body</disable>
+    </info_portion>
+
+
+   <info_portion id="tutorial_part_15_hide_weapon"></info_portion>
+
+</game_information_portions>

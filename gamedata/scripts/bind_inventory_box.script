@@ -1,0 +1,119 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : bind_inventory_box.script
+ Description: binder of CInventoryBox objects
+ Copyright  : 2017 © Prosectors Project
+ Author     : Карлан
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+function init(obj)
+    local new_binder = inventory_box_binder(obj)
+    obj:bind_object(new_binder)
+end
+--//-----------------------------------------------------------------
+class "inventory_box_binder" (object_binder)
+--//-----------------------------------------------------------------
+function inventory_box_binder:__init(obj) super(obj)
+    log("init: obj=[%s]:[%s]", obj and obj:name(), ">")
+    self.initialized = false
+    self.loaded = false
+end
+----------------------------------------------------------------------------------------------------------------------
+function inventory_box_binder:reinit()
+    self.obj_id     = self.object:id()
+    self.obj_clsid  = self.object:clsid()
+    self.ini        = self.object:spawn_ini()
+    
+    db.storage[self.obj_id] = {}
+    self.st = db.storage[self.obj_id]
+    --// добавлять коллбеки
+    self.object:set_callback(callback.on_inv_box_item_take, self.on_inv_box_item_take,  self)
+    self.object:set_callback(callback.on_inv_box_item_drop, self.on_inv_box_item_drop,  self)
+    self.object:set_callback(callback.on_inv_box_open,      self.on_inv_box_open,       self)
+    self.object:set_callback(callback.on_inv_box_close,     self.on_inv_box_close,      self)
+    self.object:set_callback(callback.use_object,           self.use_callback,          self)
+end
+----------------------------------------------------------------------------------------------------------------------
+function inventory_box_binder:net_spawn(data)
+    if not object_binder.net_spawn(self, data) then
+        warning("net_spawn:obj=NIL")
+        return false
+    end
+    -- log("inventory_box_binder:net_spawn box = [%s]", self.object:name())
+    self:read_cd()
+    event("box_spawn"):trigger{box=self.object,box_id=self.obj_id,box_clsid=self.obj_clsid,se_box=data}
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+function inventory_box_binder:net_destroy()
+    if not self.object then return end
+    remove_map_spot(self.obj_id, 'ui_pda2_actor_box_location')
+    if self.st and self.st.active_scheme then
+        xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "net_destroy")
+    end
+    db.storage[self.obj_id] = nil
+    --// снимать коллбеки
+    self.object:set_callback(callback.on_inv_box_item_take, nil) --// обретение ящиком предмета
+    self.object:set_callback(callback.on_inv_box_item_drop, nil) --// потеря ящиком предмета
+    self.object:set_callback(callback.on_inv_box_open,      nil) --// инициирование диалога с ящиком
+    self.object:set_callback(callback.on_inv_box_close,     nil) --// окончание диалога с ящиком
+    self.object:set_callback(callback.use_object,           nil) --// взаимодействие с объектом
+    
+    -- log("inventory_box_binder:net_destroy box = [%s]", self.object:name())
+    event("box_destroy"):trigger()
+end
+----------------------------------------------------------------------------------------------------------------------
+function inventory_box_binder:update(delta)
+    -- log('bind invbox update called [%s]', self.object)
+    if not self.initialized then
+        self.initialized = true
+        xr_logic.initialize_obj(self.object, self.st, self.loaded, actor, modules.stype_item)
+    end
+    if self.st.active_section then
+        xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "update", delta)
+    end
+end
+----------------------------------------------------------------------------------------------------------------------
+function inventory_box_binder:use_callback(obj, who)
+    if self.st.active_section then
+        xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "use_callback", obj, who)
+    end
+    self:update_cd() --// Karlan->ALL: на апдейт ставить накладно, так как use вызовется еще до рисовки окна и успеет поменять объем по условиям
+    event("box_used"):trigger{obj=self.object,obj_id=self.obj_id,who=who,who_id=who and who:id()}
+end
+----------------------------------------------------------------------------------------------------------------------
+function inventory_box_binder:on_inv_box_item_take(obj)
+    -- log("on_inv_box_item_take:box = [%s] item = [%s]", self.object:name(), obj:name())
+    event("box_take"):trigger{box=self.object,box_id=self.obj_id,box_clsid=self.obj_clsid,item=obj,item_id=obj:id(),item_section=obj:section()}
+end
+function inventory_box_binder:on_inv_box_item_drop(obj)
+    -- log("on_inv_box_item_drop:box = [%s] item = [%s]", self.object:name(), obj:name())
+    event("box_drop"):trigger{box=self.object,box_id=self.obj_id,box_clsid=self.obj_clsid,item=obj,item_id=obj:id(),item_section=obj:section()}
+end
+function inventory_box_binder:on_inv_box_open()
+    -- log("on_inv_box_open:box = [%s]", self.object:name())
+    event("box_open"):trigger{box=self.object,box_id=self.obj_id,box_clsid=self.obj_clsid}
+end
+function inventory_box_binder:on_inv_box_close()
+    -- log("on_inv_box_close:box = [%s]", self.object:name())
+    event("box_close"):trigger{box=self.object,box_id=self.obj_id,box_clsid=self.obj_clsid}
+end
+----------------------------------------------------------------------------------------------------------------------
+function inventory_box_binder:read_cd()
+    if not self.ini then return end --// Karlan: поскольку мы биндим абсолютно все ящики, то вычитка объема будет ругатся на ящики у которых нет (условно) custom_data, например, это синий ящик в коморке у сидоровича
+    local rented_box = READ_IF_EXISTS(self.ini, 'r_bool', 'level_spot', 'rented_box', false)
+    if rented_box then add_map_spot(self.obj_id, 'ui_pda2_actor_box_location', 'st_ui_pda_rented_box') end
+    local volume = READ_IF_EXISTS(self.ini, 'r_string', 'custom_volume', 'value', nil)
+    if not volume then return end
+    self.condlist = parse_condlist(volume)
+    self:update_cd()
+end
+function inventory_box_binder:update_cd()
+    if not self.condlist then return end
+    volume = tonumber(xr_logic.pick_section_from_condlist(self.object, self.condlist))
+    if math.is_positive(volume) then self.object:set_max_box_volume(volume) end
+end

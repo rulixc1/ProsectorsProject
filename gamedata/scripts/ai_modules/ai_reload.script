@@ -1,0 +1,227 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_reload.script
+ Description: Схема перезарядки оружия
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Rulix aka Bak
+ Original   : AI Additions, 09.01.2016
+--]] ----------------------------------------------------------------------------------------------
+local level_object = level.object_by_id
+local forbidden_schemes = {patrol = true,remark = true}
+
+local rx_ini = ini_file([[misc\ai_additions\misc.ltx]])
+assert(rx_ini:section_exist("reload"),"no section [reload] in rx_ini")
+local reload_one = cfg_get_bool(rx_ini,"reload","reload_one",true)
+local elapsed_percent = cfg_get_number(rx_ini,"reload","elapsed_percent",80)/100
+local clean_gun = cfg_get_number(rx_ini,"reload","clean_gun",10)/100
+rx_ini = nil
+
+function get_weapon_to_reload(npc,active_only,stock)
+	local active,active_id = npc:active_item()
+	if active and active:is_weapon_magazined() then
+		local mag_size = active:get_weapon().ammo_mag_size
+		local aminmag = active:get_ammo_in_magazine()
+		if aminmag < mag_size*elapsed_percent and active:get_ammo_total() > (stock and aminmag*2 or aminmag) then
+			return active,mag_size
+		end
+		active_id = active:id()
+	end
+	if active_only then
+		return
+	end
+	local wm = npc:get_wm(true)
+	if reload_one or not wm then
+		local wpn = npc:best_weapon()
+		if not wpn or wpn:id() == active_id then
+			return
+		end
+		local mag_size = wpn:get_weapon().ammo_mag_size
+		local aminmag = wpn:get_ammo_in_magazine()
+		return aminmag < mag_size*elapsed_percent and wpn:get_ammo_total() > (stock and aminmag*2 or aminmag) and wpn,mag_size
+	end
+	local wpns = wm.weapons
+	for i=1,#wpns do
+		if (wm and wpns[i].id or wpns[i]:id()) ~= active_id then
+			local wpn = level_object(wpns[i].id)
+			local mag_size = wpn:get_weapon().ammo_mag_size
+			local aminmag = wpn:get_ammo_in_magazine()
+			if aminmag < mag_size*elapsed_percent and wpn:get_ammo_total() > (stock and aminmag*2 or aminmag) then
+				return wpn,mag_size
+			end
+		end
+	end
+end
+
+class "evaluator_reload" (property_evaluator)
+function evaluator_reload:__init(storage,dbst,name) super (nil,name)
+	self.dbst = dbst
+	self.st = storage
+	self.delay = time_global()+math.random(9000,15000)
+end
+function evaluator_reload:evaluate()
+	if self.delay > time_global() then
+		return false
+	end
+	local npc = self.object
+	if self.dbst.planner:evaluator(stalker_ids.property_enemy):evaluate() or ai_wounded.is_wounded(npc) or npc:is_talking() or npc:mental_state() == anim.panic then
+		self.delay = time_global()+math.random(5000,15000)	-- НПС занят
+		return false
+	end
+	local stlib = state_lib.states[self.dbst.state_mgr:get_state()]
+	if (stlib.animation ~= nil and stlib.animation ~= "idle") or stlib.weapon == "fire" or stlib.weapon == "sniper_fire" or forbidden_schemes[self.dbst.active_scheme] or actions_id.corpse_detection and self.dbst.planner:current_action_id() == actions_id.corpse_detection then
+		self.delay = time_global()+8000	-- НПС занят
+		return false
+	end
+	if self.st.act then
+		return true
+	end
+	if is_trader_mode(npc) then
+		self.delay = math.huge
+		return false
+	end
+	local wpn,mag = get_weapon_to_reload(npc)
+	if wpn then
+		self.st.weapon = wpn:id()
+		self.st.mag_size = mag
+		return true
+	end
+	self.delay = time_global()+20000
+	return false
+end
+
+class "action_reload" (action_base)
+function action_reload:__init (action_name,storage) super (nil,action_name)
+	self.st = storage
+end
+function action_reload:initialize()
+	action_base.initialize(self)
+	local npc = self.object
+	local wm = npc:get_wm(true)
+	if wm then
+		wm:disable()
+	end
+	npc:clear_animations()
+	if npc:path_completed() then
+		npc:set_sight(look.cur_dir,nil,0)
+	elseif npc:mental_state() == anim.danger and npc:sight_params().m_sight_type ~= look.path_dir then
+		npc:set_dest_level_vertex_id(npc:level_vertex_id())
+		npc:set_desired_position(npc:position())
+	end
+	state_mgr.lock(npc,true)
+	self.st.act = true
+end
+function action_reload:execute()
+	action_base.execute(self)
+	local npc = self.object
+	local id = self.st.weapon
+	local wpn = level_object(id)
+	if not (wpn and wpn:parent() and wpn:parent():id() == npc:id()) then
+		self.st.act = nil
+		return
+	end
+	local magsize = self.st.mag_size
+	local elapsed = wpn:get_ammo_in_magazine()
+	local actit = npc:active_item()
+	if actit and actit:id() ~= id and not npc:weapon_unstrapped() then
+		npc:set_item(object.idle,actit)
+		return
+	elseif not (actit and npc:weapon_unstrapped() and actit:id() == id) then	-- оружие ещё не активно
+	elseif self.do_id ~= id then
+		self.do_id = id
+		local shotgun = cfg_get_bool(sini,wpn:section(),"tri_state_reload",false)
+		self.timer = time_global()+(shotgun and (magsize-elapsed)*1600 or 3500)
+		if clean_gun then
+			wpn:set_condition(math.min(1,wpn:condition()+clean_gun*wpn:condition()))
+		end
+	elseif elapsed >= magsize then
+		local wpn,mag = get_weapon_to_reload(npc)
+		if wpn then
+			self.st.weapon = wpn:id()
+			self.st.mag_size = mag
+		else
+			self.st.act = nil
+		end
+		return
+	elseif self.timer < time_global() then
+		wpn:set_ammo_elapsed(magsize)	-- если сам полностью зарядить не смог - поможет чит
+		return
+	end
+	npc:set_item(object.aim_force_full1,wpn)
+end
+function action_reload:finalize()
+    action_base.finalize(self)
+	local npc = self.object
+	if not npc:alive() then
+		return
+	end
+	local wpn = level_object(self.st.weapon)
+	if wpn then
+		npc:set_item(object.idle,wpn)
+		local at = wpn:get_ammo_total()
+		if at < self.st.mag_size and at == wpn:get_ammo_in_magazine() then
+			wpn:set_ammo_elapsed(self.st.mag_size)
+		end
+	end
+	local wm = npc:get_wm(true)
+	if wm then
+		wm:enable()
+	end
+	state_mgr.lock(npc,false)
+	self.timer = 0
+	self.do_id = nil
+	self.st.weapon = nil
+	self.st.mag_size = nil
+	self.st.act = nil
+end
+
+----------------------------------------------------------------------------------------------------------------------
+-- BINDER
+----------------------------------------------------------------------------------------------------------------------
+function init()
+	event("presets"):register(presets)
+end
+function presets()
+	event("npc_spawn"):register(add_to_binder)
+end
+
+local evid_reload = evaluators_id('reload',false)
+local actid_reload = actions_id('reload')
+
+function add_to_binder(t)
+	local manager = t.st.planner
+	local storage = t.st.ai('reload')
+
+	if t.obj:character_community() == "zombied" then
+		manager:add_evaluator(evid_reload,property_evaluator_const(false))
+		return
+	end
+
+	manager:add_evaluator(evid_reload,evaluator_reload(storage,t.st,"eva_reload"))
+	local action = action_reload("act_reload",storage)
+	action:add_precondition(world_property(stalker_ids.property_danger,false))
+	action:add_precondition(world_property(stalker_ids.property_enemy,false))
+	action:add_precondition(world_property(evaluators_id.sidor_wounded_base,false))
+	action:add_precondition(world_property(evaluators_id.state_mgr+3,true))
+	if evaluators_id.bandage then
+		action:add_precondition(world_property(evaluators_id.bandage,false))
+	end
+	if evaluators_id.gl_reload then
+		action:add_precondition	(world_property(evaluators_id.gl_reload,false))
+	end
+	if evaluators_id.help_wounded then
+		action:add_precondition(world_property(evaluators_id.help_wounded,false))
+	end
+	if evaluators_id.corpse_detection then
+		action:add_precondition(world_property(evaluators_id.corpse_detection,false))
+	end
+	if evaluators_id.grenade_evade then
+		action:add_precondition	(world_property(evaluators_id.grenade_evade,false))
+	end
+	action:add_precondition(world_property(evid_reload,true))
+	action:add_effect(world_property(evid_reload,false))
+	manager:add_action(actid_reload,action)
+	-- включение в планировщик
+	for n,id in ipairs({actions_id.alife,actions_id.stohe_meet_base+1}) do
+		action = manager:action(id)
+		action:add_precondition(world_property(evid_reload,false))
+	end
+end

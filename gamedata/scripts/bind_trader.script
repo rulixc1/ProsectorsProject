@@ -1,0 +1,168 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : bind_trader.script
+ Description: binder of CAI_Trader objects
+ Copyright  : 2017 © Prosectors Project
+ Author     : Карлан
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+function init(obj)
+    if IsTrader(obj) then
+        local new_binder = trader_binder(obj)
+        obj:bind_object(new_binder)
+    else
+        warning("NPC is not trader, bind ignore, %s", obj)
+    end
+end
+--//-----------------------------------------------------------------
+class "trader_binder" (object_binder)
+--//-----------------------------------------------------------------
+function trader_binder:__init(obj) super(obj)
+    log("init:TRADER=[%s]:[%s]", obj, ">")
+    self.loaded       = false
+    self.first_update = true
+    
+    self.obj_id       = obj:id()
+    self.obj_clsid    = obj:clsid()
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:reinit()
+    log("reinit:TRADER=[%s]:[%s]", self.object, ">")
+    db.storage[self.obj_id] = {}
+    self.st = db.storage[self.obj_id]
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:add_callbacks()
+    self.object:set_callback(callback.patrol_path_in_point, self.waypoint_callback, self)
+    -- self.object:set_callback(callback.hit,                  self.hit_callback,      self) --// Karlan: reserved
+    -- self.object:set_callback(callback.death,                self.death_callback,    self) --// Karlan: reserved
+    self.object:set_callback(callback.use_object,           self.use_callback,      self)
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:del_callbacks()
+    self.object:set_callback(callback.patrol_path_in_point, nil)
+    -- self.object:set_callback(callback.hit, nil)
+    -- self.object:set_callback(callback.death, nil)
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:waypoint_callback(obj, action_type, index)
+    if self.st and self.st.active_section then
+        xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "waypoint_callback", obj, action_type, index)
+    end
+end
+
+function trader_binder:use_callback(npc, who)
+    if not (self.object and npc) then
+        warning("use_callback:TRADER=<%s>,Who=<%s>", npc, who)
+        return
+    end
+    if self.object:alive() then
+        if self.st.active_section then
+            xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "use_callback", npc, who)
+        end
+    else
+        if not self.st.treasure_processed then --// Karlan: торговцы же это, того :)
+            manager_treasure:get_manager_treasure():use(self.object)
+           self.st.treasure_processed = true
+        end
+    end
+    event("trader_used"):trigger{obj=npc,obj_id=npc:id(),who=who,who_id=who and who:id(),is_trader=true}
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:net_spawn(sobject)
+    local npc = self.object
+    if not (npc and object_binder.net_spawn(self, sobject)) then
+        return false
+    end
+    local server_object = alife():object(self.obj_id)
+    if not server_object then
+        abort("net_spawn:TRADER=<%s>,sobject=NIL", npc, self.obj_id)
+        return true
+    end
+    log("net_spawn:TRADER=<%s>:is_alive=[%s]:[%s]", npc, npc.alive and npc:alive(), ">")
+    if npc.alive and npc:alive() then
+        self:add_callbacks()
+        m_gulag.setup_gulag_and_logic_on_spawn(npc, self.st, server_object, modules.stype_trader, self.loaded)
+    else
+        self.object:set_callback(callback.use_object, self.use_callback, self)
+    end
+    event("trader_spawn"):trigger{obj=self.object,obj_id=self.obj_id,obj_clsid=self.obj_clsid,sobject=server_object,is_trader=true}
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:net_destroy()
+    if not self.object then
+        warning("trader:self.object=NIL")
+        return
+    elseif self.st then
+        event("trader_destroy"):trigger{obj=self.object,obj_id=self.object:id(),obj_clsid=self.obj_clsid,is_trader=true}
+        if self.st.active_scheme then
+            xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "net_destroy")
+        end
+    end
+    log("net_destroy:TRADER=<%s>:[%s]", self.object, ">")
+    db.storage[self.object:id()] = nil
+    self:del_callbacks()
+    self.object:set_callback(callback.use_object, nil)
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:update(delta)
+    if not self.object then return warning("trader:self.object=NIL")
+    elseif not self.st then return warning("trader<%s>:self.st=NIL", self.object)
+    end
+    
+    local npc = self.object
+    local is_alive = npc.alive and npc:alive()
+    
+    if is_alive then
+        local tip_text = npc:is_talk_enabled() and "character_use" or ""
+        npc:set_tip_text(tip_text)
+        if manager_trade._OLD_TRADE_ then manager_trade.update_old(npc) end
+        if self.st.active_section then
+            xr_logic.issue_event(npc, self.st[self.st.active_scheme], "update", delta)
+        end
+    else
+        if self.first_update then
+            self.first_update = false
+            self:del_callbacks()
+        end
+        npc:set_tip_text_default()
+    end
+    
+    event("trader_update"):trigger{obj=self.object,obj_id=self.object:id(),delta=delta,is_trader=true}
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:net_save_relevant()
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:save(packet)
+    if not self.object then return warning("save:object=NIL") end
+    log("save:TRADER=[%s]:[%s]", self.object, ">")
+    event("trader_save"):trigger{obj=self.object,obj_id=self.object:id(),packet=packet,is_trader=true}
+    SAVE_OBJECT(self.object)
+    if manager_trade._OLD_TRADE_ then manager_trade.save_old(self.object, packet) end
+end
+----------------------------------------------------------------------------------------------------------------------
+function trader_binder:load(reader)
+    if not self.object then return warning("load:object=NIL") end
+    log("load:TRADER=[%s]:[%s]", self.object, ">")
+    self.loaded = true
+    if manager_trade._OLD_TRADE_ and reader:r_eof() then
+        if not alife():object(self.object:id()) then
+            warning("load:TRADER=[%s/%s]<~server_object=NIL:(%s)", self.object:name(), self.object:id(), reader:r_elapsed())
+        else
+            abort("load:SAVE_FILE_IS_CORRUPT:Obj=[%s],ID=[%s]:(%s)", self.object:name(), self.object:id(), reader:r_elapsed())
+        end
+        self.loaded = false
+        return
+    end
+    if manager_trade._OLD_TRADE_ then manager_trade.load_old(self.object, reader) end
+    LOAD_OBJECT(self.object)
+    event("trader_load"):trigger{obj=self.object,obj_id=self.object:id(),packet=reader,is_trader=true}
+end
+----------------------------------------------------------------------------------------------------------------------

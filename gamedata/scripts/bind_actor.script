@@ -1,0 +1,188 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : bind_actor.script
+ Description: Actor binder
+ Copyright  : 2017 © Prosectors Project
+ Author     : Karlan (по материалам GSC) 
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+function init(npc) _G.g_bind_actor = this.actor_binder(npc) npc:bind_object(g_bind_actor) end
+--//-----------------------------------------------------------------
+class "actor_binder" (object_binder)
+--//-----------------------------------------------------------------
+function actor_binder:__init(obj) super(obj)
+    _G.actor    = self.object 
+    _G.actor_id = self.object:id()
+    --//--------------------------
+    self.is_first_start = true
+    self.is_start       = false
+    self.am             = m_signals.get_mgr() --// timers support
+    event("actor_bind"):trigger()
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:__finalize()
+    event("actor_finalize"):trigger()
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:net_spawn(data)
+    if not object_binder.net_spawn(self,data) then return false end
+	debug.g_spy:start("actor_binder:net_spawn")
+    self.is_start = true
+    level.show_indicators()
+    if not db.storage[actor_id].pstor then
+        db.storage[actor_id].pstor = {}
+    end
+    if actor_stats.add_to_ranking then actor_stats.add_to_ranking(actor_id) end
+    event("actor_spawn"):trigger{actor=actor,binder=self,se_actor=data,is_first_start=self.is_first_start}
+	debug.g_spy:finish("actor_binder:net_spawn")
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:net_destroy()
+    if actor_stats.remove_from_ranking then actor_stats.remove_from_ranking(actor_id) end
+    self:del_callbacks()
+    event("actor_destroy"):trigger()
+end
+function actor_binder:del_callbacks()
+    log("actor_binder:del_callbacks:[>]")
+    actor:set_callback(callback.inventory_info,         nil) --// получение инфо
+    actor:set_callback(callback.article_info,           nil) --// получение статьи
+    actor:set_callback(callback.on_item_take,           nil) --// обретение предмета
+    actor:set_callback(callback.on_item_drop,           nil) --// потеря предмета
+    actor:set_callback(callback.on_item_ruck,           nil) --// появление предмета в рюкзаке
+    actor:set_callback(callback.on_item_slot,           nil) --// появление предмета в слоте
+    actor:set_callback(callback.use_object,             nil) --// использование предмета
+    actor:set_callback(callback.trade_sell_buy_item,    nil) --// факт совершенной сделки
+    actor:set_callback(callback.task_state,             nil) --// получение/обновление таска
+    actor:set_callback(callback.level_border_enter,     nil) --// актор зашел в опасную зону (определяется по материалам полигонов)
+    actor:set_callback(callback.level_border_exit,      nil) --// актор вышел из опасной зоны
+    actor:set_callback(callback.take_item_from_box,     nil) --// взятие предмета из ящика
+    actor:set_callback(callback.on_group_items,         nil) --// группировка предметов
+    actor:set_callback(callback.on_key_press,           nil) --// нажатие клавиши
+    actor:set_callback(callback.on_key_release,         nil) --// отпускание клавиши
+    actor:set_callback(callback.on_start_dialog,        nil) --// факт начала диалога (аргументом является текущий собеседник, полный аналог level.get_talker())
+    actor:set_callback(callback.on_stop_dialog,         nil) --// факт окончания диалога (вызывается после разрыва контакта с персонажем, аргуметом является последний собеседник)
+    actor:set_callback(callback.on_post_save,           nil) --// дергается после сохранения всех объектов
+    actor:set_callback(callback.hit,                    nil) --// хит коллбек
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:reinit()
+    db.storage[0] = {["pstor"] = {}}
+    self.st = db.storage[0]
+    event("actor_stor"):trigger() 
+    self:add_callbacks()
+end
+function actor_binder:add_callbacks() --// Karlan to ALL: тут внимательнее заполняйте!!!
+    log("actor_binder:add_callbacks:[>]")
+    actor:set_callback(callback.inventory_info,         function(self, actor, info_id) event("info_received"):trigger{actor=actor,info=info_id}          end,   self)
+    actor:set_callback(callback.article_info,           self.article_callback,     self)
+    actor:set_callback(callback.on_item_take,           function(self, obj)         event("item_take"):trigger{item=obj,item_id=obj:id(),section=obj:section()}             end,   self)
+    actor:set_callback(callback.on_item_drop,           function(self, obj, slot)   event("item_drop"):trigger{item=obj,item_id=obj:id(),section=obj:section(),slot=slot}   end,   self)
+    actor:set_callback(callback.on_item_ruck,           function(self, obj)         event("item_ruck"):trigger{item=obj,item_id=obj:id(),section=obj:section()}             end,   self)
+    actor:set_callback(callback.on_item_slot,           function(self, obj)         event("item_slot"):trigger{item=obj,item_id=obj:id(),section=obj:section()}             end,   self)
+    actor:set_callback(callback.use_object,             function(self, obj)         event("item_use"):trigger{item=obj,item_id=obj:id(),section=obj:section()}             end,   self)
+    actor:set_callback(callback.trade_sell_buy_item,    self.on_trade_action,      self) 
+    actor:set_callback(callback.task_state,             self.task_callback,        self)
+    actor:set_callback(callback.level_border_enter,     function(self, obj, info_id) event("actor_enter"):trigger{npc=obj,info_id=info_id}               end,   self)
+    actor:set_callback(callback.level_border_exit,      function(self, obj, info_id) event("actor_exit"):trigger{npc=obj,info_id=info_id}                end,   self)
+    actor:set_callback(callback.take_item_from_box,     self.take_item_from_box,   self)
+    actor:set_callback(callback.on_group_items,         self.on_group_items,       self)
+    actor:set_callback(callback.on_key_press,           function(self, key)                         event("key_press"):trigger{key=key}                     end,    self)
+    actor:set_callback(callback.on_key_release,         function(self, key)                         event("key_release"):trigger{key=key}                   end,    self)
+    actor:set_callback(callback.on_start_dialog,        function(self, obj)                         event("start_dialog"):trigger{obj=obj}                  end,    self)
+    actor:set_callback(callback.on_stop_dialog,         function(self, obj)                         event("stop_dialog"):trigger{obj=obj}                   end,    self)
+    actor:set_callback(callback.on_post_save,           self.on_post_save,         self)
+    actor:set_callback(callback.saw_object,             function(self, saw_obj, element, obj) set_saw_obj_id(saw_obj:id(), element) end,   self)
+    actor:set_callback(callback.hit,                    self.hit_callback,      self)
+end
+--------------------------------------------------------------------------------------------------------------------
+function actor_binder:hit_callback(actor, amount, direction, who, bone_id, hit_type, weapon_id)
+    -- log("amount = %s, hit_type = %s, who = %s, bone = %s", amount, HIT_TYPE_BY_ID[hit_type], who:name(), actor:get_bone_name(bone_id))
+    event("actor_hit"):trigger{obj=actor,victim=actor,amount=amount,dir=direction,who=who,bone=bone_id,hit_type=hit_type,weapon_id=weapon_id,is_actor=true}
+end
+--------------------------------------------------------------------------------------------------------------------
+function actor_binder:on_group_items(obj1,obj2)
+    event("item_group"):trigger{first_obj=obj1,second_obj=obj2,first_flag=get_flag(obj1, global_flags.FIUngroupable),second_flag=get_flag(obj2, global_flags.FIUngroupable)}
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:take_item_from_box(box, item)
+    event("item_take_from_box"):trigger{box=box,box_id=box:id(),box_sid=story_id,item=item,item_id=item:id()}
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:on_trade_action(item, sell_bye, money, first_trader, second_trader)
+    local act, npc = get_actor_npc_talk(first_trader, second_trader)
+    event("trade_action"):trigger{item=item,item_id=item:id(),sell_bye=sell_bye,money=money,actor=act,npc=npc,obj=npc}
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:article_callback(npc, group, name, _type) --// сюда вообще 4 аргумента падает (четвертый - тип: энциклопедия, журнал, инфо, задания)
+    if dev.precache_frame > 0 then return end --// Karlan: вроде есть косяк, что сообщения вываливаются большой пачкой на первом и нулевом фрейме если мы какие-нибудь динамические новости заведем где-нибудь еще на 30 фрейме, то есть кудесникам динамических новостей надо тоже это учитывать
+    event("article_received"):trigger{npc=npc,group=group,name=name,type=_type}
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:task_callback(_task, _objective, _state) --// todo: написать нормальный менеджер тасков и туда скинуть
+    manager_task.task_callback(_task:get_id(), _objective:get_idx(), _state)
+    if _objective:get_idx() == 0 then
+        if _state == task.fail then
+            manager_news.send_task(actor, "fail", _task, _objective)
+        elseif _state == task.completed then
+            manager_task.reward_by_task(_task)
+            manager_news.send_task(actor, "complete", _task, _objective)
+        else
+            manager_news.send_task(actor, "new", _task, _objective)
+        end
+    else
+        if _task:get_objective(0):get_state() == task.in_progress then
+            manager_news.send_task(actor, "update", _task, _objective)
+        end
+    end
+    event("task_received"):trigger{task=_task,objective=_objective,state=_state}
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:update(delta)
+	debug.g_spy:start("actor_binder:update")
+    _G.watchdog = make_string('Update is worked: start(%s)', delta) --// DEBUG [!]
+    local time = time_global()
+    if self.is_start then
+        self.is_start = false
+        event("update_1st"):trigger{time=time,delta=delta,binder=self}
+    end
+    _G.watchdog = make_string('Update is worked: self.is_start(%s)', delta) --// DEBUG [!]
+    self.am:call("on_actor_update", delta) --// timers support
+    _G.watchdog = make_string('Update is worked: self.am:call(%s)', delta) --// DEBUG [!]
+    event("actor_update"):trigger{time=time,delta=delta,binder=self}
+    _G.watchdog = make_string('Update is worked: finish(%s)', delta) --// DEBUG [!]
+	debug.g_spy:finish("actor_binder:update")
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:on_post_save()
+    event("storage_save"):trigger()
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:on_before_load()
+    self.is_first_start = false
+    event("storage_load"):trigger()
+end
+----------------------------------------------------------------------------------------------------------------------
+--// Карлан->ALL: надо сделать маркеры для того, чтобы можно было юзать пакеты не думая, понимаю что никому не надо, но надежности ради
+function actor_binder:save(packet)
+    --// ORIGINAL METHODS // PLEASE, NOW DON'T USE //--
+    self.am:call("on_actor_save", packet) --// timers support
+    event("actor_save"):trigger{packet=packet} --// Карлан: вдруг кому-то захочется чего-то этакого?
+end
+----------------------------------------------------------------------------------------------------------------------
+function actor_binder:load(reader)
+    self:on_before_load() --// fake callback
+    --// ORIGINAL METHODS // PLEASE, NOW DON'T USE //--
+    --// Karlan->ALL: поскольку здесь у нас пакет заканчивается, то проверка r_eof() не имеет смысла, она в любом случае сработает
+    -- if reader:r_eof() then --// при использовании пакетов раскомментировать!
+        -- abort("load:~SAVE_FILE_IS_CORRUPT")
+        -- return 
+    -- end
+    self.am:call("on_actor_load", reader) --// timers support
+    event("actor_load"):trigger{packet=reader} --// Карлан: вдруг кому-то захочется чего-то этакого?
+end
+----------------------------------------------------------------------------------------------------------------------

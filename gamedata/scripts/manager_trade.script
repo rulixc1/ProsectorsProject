@@ -1,0 +1,1625 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : manager_trade.script (base on trade_manager)
+ Description: Trade handler
+ Copyright  : 2017 © Prosectors Project
+ Author     : Karlan
+ Version    : 1.6
+--]] ----------------------------------------------------------------------------------------------
+--// Karlan->ALL: при пересоздании торговца его таймер обнулится, можно конечно все пошить на сиды, но тогда обязуем каждому торговцу делать сид, что является издевательством над такими ленивыми как я, так что если чего, то сбросится таймер, и, затем, соответственно реинтится торговля, только не забывайте затирать старую торговлю при удалении непися ручными способами
+--// TODO: перевязать все с коллбек схемой, скорее всего сюда полностью интегрировать, а схему снести, у кого звуки в теме существуют те и будут базарить, остальные и так молчуны
+--// TODO: доделать фишку с артефактом
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local loaded = false
+--//--------------------
+_OLD_TRADE_ = false --// для совместимости
+--// SYSTEM
+local ts = {}
+local bargain_link = nil
+local clsid_to_str = nil
+local clsid_invert = nil
+local msg_data = { --// TODO: написать тексты
+    ['escape_trader'] = {name = 'Сидорович:', text = 'Ассортимент обновлен.', icon = 'trader'},
+    ['esc_bridge_soldier5'] = {name = 'Кузнецов:', text = 'Ассортимент обновлен.', icon = 'kuznetsov'},
+    ['bar_dolg_petrenko'] = {name = 'Петренко:', text = 'Ассортимент обновлен.', icon = 'petrenko'},
+    ['bar_barman'] = {name = 'Бармен:', text = 'Ассортимент обновлен.', icon = 'barman'},
+    ['yantar_ecolog_general'] = {name = 'Сахаров:', text = 'Ассортимент обновлен.', icon = 'saharov'},
+    ['mil_freedom_member0021'] = {name = 'Скряга:', text = 'Ассортимент обновлен.', icon = 'miser'},
+}
+local trade_guid = '{729A6836-E6A8-93CE-ABF4-8E4A470A3BE2}'
+--// ARTS (движковая фишка, которая была скорее всего вырезана из-за изменения функционала заданий) --// TODO: пока только веселые зарисовки
+local need_art = nil
+--// GOODWILL
+local goodwill_excludes = {
+    ['trader'] = true,
+    ['ecolog'] = true,
+}
+local money_get, money_put, goodwill_coeff, art_count = nil, nil, nil, 0
+--// ECONOMICS
+local nominal_prices = {} --// стораж наращения
+local inflation_rate = {} --// стораж инфляции
+local entry_trade = false
+local deficit_buff = {}
+local deficit_factor = nil
+--// SNAKEFISH
+local snakefish_items = {} --// шкуроход
+local snakefish_reset = false
+local sf_ammo_id = trade_guid..'_'..'sf_ammo_id'
+local reason_msg = nil
+local reason_data = {
+    npc_sell_ammo_reject    = '$partner не может продать последние боеприпасы',
+    npc_buy_ammo_reject     = '$partner уже имеет достаточное количество боеприпасов данного типа',
+    npc_buy_ammoi_reject     = '$partner не интересуется боеприпасами данного типа',
+    npc_sell_gren_reject    = '$partner не может продать последние гранаты',
+    npc_buy_gren_reject     = '$partner уже имеет достаточное количество гранат данного типа',
+    npc_sell_eat_reject     = '$partner не может продать последнюю еду',
+    npc_buy_bottle_reject     = '$partner уже имеет достаточное количество напитков данного типа',
+    npc_sell_bottle_reject     = '$partner не может продать последние напитки',
+    npc_buy_eat_reject     = '$partner уже имеет достаточное количество еды данного типа',
+    npc_buy_eatc_reject     = '$partner не купит испорченную еду',
+    npc_sell_eatb_reject     = '$partner не продаст лучшую еду',
+    npc_sell_med_reject     = '$partner не может продать последние медикаменты',
+    npc_buy_med_reject     = '$partner уже имеет достаточное количество медикаментов данного типа',
+    npc_sell_best_med_reject     = '$partner не продаст лучшие медикаменты',
+    npc_buy_part_reject     = '$partner не купит испорченную часть',
+    npc_sell_outfit_reject     = '$partner не продаст вам лучший бронежилет',
+    npc_buy_outfit_reject     = '$partner не купит костюм хуже текущего',
+    npc_buy_weapon_reject     = '$partner не заинтересован в этом оружии',
+    npc_sell_weapon_reject     = '$partner не продаст вам необходимое оружие',
+    npc_sell_torch_reject     = '$partner не продаст вам единственный фонарь',
+    npc_sell_binocle_reject     = '$partner не продаст вам единственный бинокль',
+}
+--// CUSTOMIZABLE
+local MAX_NPC_SLOT_AMMO = 5 --// необходимый боезапас НПС для оружия в слотах
+local MAX_NPC_MUST_AMMO = 2 --// необходимый боезапас НПС для каждого ствола из списка необходимых
+local MAX_NPC_EAT = 2 --// необходимый запас еды/напитков одного типа (+1 (учитывается ниже), так как движок сжирает один предмет и не дает им торговать)
+local MAX_NPC_GRENADE = 2 --// необходимый запас гранат
+local MAX_NPC_MEDKIT = 2 --// необходимый запас аптечек одного типа, бинтов
+local MAX_NPC_ANTIRAD = 2 --// необходимый запас антирадов
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+local function get_trader_goodwill(npc)
+    if goodwill_excludes[npc:character_community()] then
+        return get_npc_goodwill(npc, actor)/1000 --// Karlan->Team: делитель обязательно должен быть равен положительному(!) барьеру благосклонности, потом сделаю вычитку настройки
+    end
+    return (get_npc_goodwill(npc, actor)/1000+get_factions_community_goodwill(npc:character_community(), actor_id)/5000)
+end
+--//------------------------------------------------------------
+local function fill_snakefish_items(npc)
+    npc:iterate_inventory(function(_, item) --// Karlan->Karlan: foreach здесь использовать не надо, у нас и так прокручивается foreach каждый раз, здесь нам нужно только составить список для read режима
+        local section = item:section()
+        if not snakefish_items[section] then
+            snakefish_items[section] = 1
+        else
+            snakefish_items[section] = snakefish_items[section]+1
+        end
+    end)
+    snakefish_items[sf_ammo_id] = {}
+    snakefish_items.lock_wpn = {}
+    for k,v in pairs(npc:get_wm():get_best_by_types()) do
+        snakefish_items.lock_wpn[v.id] = true
+    end
+end
+local function inc_snakefish_items(section, count)
+    count = count or 1
+    if not snakefish_items[section] then
+        snakefish_items[section] = 0
+    end
+    snakefish_items[section] = snakefish_items[section] + count
+end
+local function dec_snakefish_items(section, count)
+    count = count or 1
+    if not snakefish_items[section] then return end
+    snakefish_items[section] = snakefish_items[section] - count
+    if snakefish_items[section] == 0 then snakefish_items[section] = nil end
+end
+local function get_snakefish_items(section)
+    local count = snakefish_items[section]
+    log('get_snakefish_items: count = %s', snakefish_items[section])
+    table.print(snakefish_items, 'snakefish_items')
+    if is_number(count) then return count end
+    return -1
+end
+local function clear_snakefish_items()
+    snakefish_items = {}
+end
+local function reset_snakefish_items(npc) --// Karlan: со стороны оптимизации эта функция проигрывает fill_snakefish_items, но поскольку релаьными итемами не оперируем, а затрата на итерацию одна и таже так что можно забить ,эта работает в режиме ресета, вышеуказанная в режиме изменения
+    if npc:id() == actor_id then return end
+    if not snakefish_reset then return end
+    if is_trader_mode(npc) then return end
+    log('call reset items for [%s]', npc)
+    clear_snakefish_items()
+    fill_snakefish_items(npc)
+    snakefish_reset = false
+    table.print(snakefish_items, 'snakefish_items')
+end
+--//----------------------------
+--// [вспомогательный функционал]:>
+local function get_bool_sell_buy(mode, allow_cfg, section, max_count, reason_buy, reason_sell, update)
+    local count = get_snakefish_items(section)
+    -- logc('/[T02] get_bool_sell_buy: [%s] = count<%s>, max_count<%s> {mode = %s}', section, count, max_count, mode)
+    if count < 0 then
+        if allow_cfg then
+            if mode == 3 and not update then inc_snakefish_items(section) end
+            if mode == 2 and not update then dec_snakefish_items(section) end
+            return true
+        end
+        return false
+    end
+    if count == max_count then
+        reason_msg = (mode == 3 and reason_buy) or (mode == 2 and reason_sell)
+        return false
+    elseif count > max_count then
+        if mode == 2 then
+            if not update then dec_snakefish_items(section) end
+            return true
+        elseif mode == 3 then
+            reason_msg = reason_buy
+            return false
+        end
+    elseif count < max_count then
+        if mode == 2 then
+            reason_msg = reason_sell
+            return false
+        elseif mode == 3 then
+            if not update then inc_snakefish_items(section) end
+            return true
+        end
+    end
+end
+local function calculate_sf_ammo(obj, slot, section, mode, allow_cfg, update, max_ammo)
+    max_ammo = max_ammo or MAX_NPC_SLOT_AMMO
+    local wpn = is_string(slot) and slot or obj:item_in_slot(slot)
+    if not wpn then return end
+    local st = snakefish_items[sf_ammo_id]
+    if not st[slot] then
+        local buff = parse_names(cfg_get_string(sini, is_string(wpn) and wpn or wpn:section(), 'ammo_class'))
+        st[slot] = {}
+        for _,v in ipairs(buff) do
+            st[slot][v] = true
+        end
+    end
+    if st[slot][section] then
+        return get_bool_sell_buy(mode, allow_cfg, section, max_ammo, reason_data.npc_buy_ammo_reject, reason_data.npc_sell_ammo_reject, update)
+    end
+end
+local function calculate_items_count(tab)
+    local count = 0
+    for i=1,#tab do
+        local rc = get_snakefish_items(tab[i])
+        if math.is_positive(rc) then
+            count = count+rc
+        end
+    end
+    log('calculate_items_count tab = %s, result = %s', tab, count)
+    return count
+end
+--// [вспомогательный функционал]:<
+local function set_snakefish(obj, item, allow_cfg, mode, update) --// (re)set/get
+--// @ mode == 1 --// добавляем в лист?
+--// @ mode == 2 --// разрешаем агенту продавать?
+--// @ mode == 3 --// разрешаем агенту покупать?
+    local section = item:section()
+    if mode == 1 then
+        if obj:id() ~= actor_id then --// возможность регулировки актора добавляем, но пока не будем использовать, не надо пока
+            --// добавляем в лист агенту? todo
+        end
+    end
+    if mode == 2 or mode == 3 then
+        if item:is_ammo() then
+            log('calculate ammo <%s>', item)
+            local result = nil
+            if obj:get_wm() and obj:get_wm():get_weapon() then
+                result = calculate_sf_ammo(obj, obj:get_wm():get_weapon():section(), section, mode, allow_cfg, update)
+                if is_boolean(result) then return result end --/>
+            end
+            result = calculate_sf_ammo(obj, PISTOL_SLOT, section, mode, allow_cfg, update)
+            if is_boolean(result) then return result end --/>
+            result = calculate_sf_ammo(obj, RIFLE_SLOT, section, mode, allow_cfg, update)
+            if is_boolean(result) then return result end --/>            
+            for _,v in pairs(obj:get_wm():get_best_by_types()) do
+                result = calculate_sf_ammo(obj, v.sec, section, mode, allow_cfg, update, MAX_NPC_MUST_AMMO)
+                if is_boolean(result) then return result end --/>
+            end
+            reason_msg = reason_data.npc_buy_ammoi_reject 
+            return false --// не подходящими не торгуем вообще
+        end
+        if item:is_medkit() then
+            --// есть тема не продавать только оставшиеся лучшие аптечки, но этот вариант мне не очень сильно понравился, сделал оставление кажого типа
+            if mode == 2 and ((section:find('sci') and (get_snakefish_items('medkit') > MAX_NPC_MEDKIT or get_snakefish_items('medkit_army') > MAX_NPC_MEDKIT)) or (section:find('army') and get_snakefish_items('medkit') > MAX_NPC_MEDKIT)) then
+                reason_msg = reason_data.npc_sell_best_med_reject
+                return false
+            end
+            return get_bool_sell_buy(mode, allow_cfg, section, MAX_NPC_MEDKIT, reason_data.npc_buy_med_reject, reason_data.npc_sell_med_reject, update)
+        end
+        if item:is_antirad() then
+            return get_bool_sell_buy(mode, allow_cfg, section, MAX_NPC_ANTIRAD, reason_data.npc_buy_med_reject, reason_data.npc_sell_med_reject, update)
+        end
+        if item:is_grenade() then
+            return get_bool_sell_buy(mode, allow_cfg, section, MAX_NPC_GRENADE, reason_data.npc_buy_gren_reject, reason_data.npc_sell_gren_reject, update)
+        end
+        if item:is_eatable_item() then
+            local count = item:is_bottle_item() and calculate_items_count{'energy_drink', 'vodka'} or calculate_items_count{'bread', 'kolbasa', 'conserva'}
+            local reason_buy, reason_sell = reason_data['npc_buy_'..(item:is_bottle_item() and 'bottle' or 'eat')..'_reject'], reason_data['npc_sell_'..(item:is_bottle_item() and 'bottle' or 'eat')..'_reject']
+            if mode == 3 and item:condition() < 0.35 then
+                reason_msg = reason_data.npc_buy_eatc_reject
+                return false
+            end
+            if mode == 2 then
+                if count < MAX_NPC_EAT+1 then
+                    return get_bool_sell_buy(mode, allow_cfg, section, MAX_NPC_EAT+1, reason_buy, reason_sell, update)
+                end
+                if section == 'conserva' and (math.is_positive(get_snakefish_items('bread')) or math.is_positive(get_snakefish_items('kolbasa'))) then
+                    reason_msg = reason_data.npc_sell_eatb_reject
+                    return false
+                end
+                if section == 'bread' or section == 'kolbasa' then
+                    if get_snakefish_items('conserva') > 0 then
+                        return allow_cfg
+                    end
+                end
+            end
+            return get_bool_sell_buy(mode, allow_cfg, section, MAX_NPC_EAT+1, reason_buy, reason_sell, update)
+        end
+        if mode == 3 and section:find('^mutant_') and item:condition() < 0.5 and item:is_inventory_item() then --// Karlan: ага, и тут сказка об атачабельности
+            reason_msg = reason_data.npc_buy_part_reject
+            return false
+        end
+        if item:is_outfit() then
+            local visual = string.split(obj:get_visual_name(), '\\')
+            if manager_death.drop_outfit_base[visual[3]] then
+                local cost = math.huge --// Karlan: затычка, потому что не все броники еще записали в массивы
+                if sini:section_exist(manager_death.drop_outfit_base[visual[3]][1]) then
+                    cost = sini:r_float(manager_death.drop_outfit_base[visual[3]][1], 'cost')
+                end
+                if mode == 3 then
+                    if item:cost()*item:condition() > cost and item:condition() > 0.75 then
+                        return allow_cfg
+                    end
+                    reason_msg = reason_data.npc_buy_outfit_reject
+                    return false
+                end
+                if mode == 2 and (item:cost() > cost and get_snakefish_items(item:section()) < 2) then
+                    reason_msg = reason_data.npc_sell_outfit_reject --// Karlan->Karlan: возможно тут стоит запрещать только самый лучший к продаже, а не каждый лучше текущего?
+                    return false
+                end
+            end
+        end
+        if IsWeapon(item) then
+            if mode == 3 and not obj:get_wm():can_take(item) then
+                reason_msg = reason_data.npc_buy_weapon_reject
+                return false
+            end
+            if mode == 2 and snakefish_items.lock_wpn[item:id()] then
+                reason_msg = reason_data.npc_sell_weapon_reject
+                return false
+            end
+        end
+        if section == 'device_torch' then
+            if mode == 3 and obj:object('device_torch') then
+                return false
+            end
+            if mode == 2 and get_snakefish_items('device_torch') < 2 then
+                reason_msg = reason_data.npc_sell_torch_reject
+                return false
+            end
+        end        
+        if section == 'wpn_binoc' then
+            if mode == 3 and obj:object('wpn_binoc') then
+                return false
+            end
+            if mode == 2 and get_snakefish_items('wpn_binoc') < 2 then
+                reason_msg = reason_data.npc_sell_binocle_reject
+                return false
+            end
+        end
+        -- if item:is_simple_detector() then
+            --// placeholder
+        -- end
+    end
+    return allow_cfg
+end
+--//------------------------------------------------------------
+local function send_new(name, deviation)
+    if _DEBUG_ then
+        assert(msg_data[name], 'msg_data[%s]', name)
+    else
+        if not msg_data[name] then return warning('msg_data[%s]', name) end
+    end
+    local data = msg_data[name]
+    local text = data.text
+    if is_table(text) then
+        text = text[math.random(#text)]
+    end
+    manager_news.send_new(data.name, text, data.icon, nil, deviation, 10, 'news')
+end
+--//------------------------------------------------------------
+local function get_clsid_buffer()
+    if not clsid_to_str and not clsid_invert then
+        clsid_to_str = {}
+        clsid_invert = table.invert(clsid_table)
+        for k,v in pairs(clsid_invert) do --// Karlan->Kalran: в этой реализации есть избытки, но они несущественны :)
+            if v:find('wpn') then       clsid_to_str[v] = 'weapon'      end
+            if v:find('grenade') then   clsid_to_str[v] = 'grenade'     end --// karlan: redefenition, dont'move!
+            if v:find('knife') then     clsid_to_str[v] = 'knife'       end --// karlan: redefenition, dont'move!
+            if v:find('ammo') then      clsid_to_str[v] = 'ammo'        end --// karlan: redefenition, dont'move!
+            if v:find('^art') then      clsid_to_str[v] = 'artefact'    end
+            if v:find('^dev') then      clsid_to_str[v] = 'device'      end
+            if v:find('document') then  clsid_to_str[v] = 'document'    end
+            if v:find('explosive') then clsid_to_str[v] = 'explosive'   end
+            if v:find('attach') then    clsid_to_str[v] = 'attachable'  end
+            if v:find('backpack') then  clsid_to_str[v] = 'backpack'    end
+            if v:find('^equ') or v:find('helmet') then                  clsid_to_str[v] = 'outfit'      end
+            if v:find('ban') or v:find('med') or v:find('antir') then   clsid_to_str[v] = 'medicine'    end
+            if v:find('food') or v:find('bottle') then                  clsid_to_str[v] = 'eat'         end
+        end
+    end
+    return clsid_to_str
+end
+local function get_item_trade_type(obj)
+    local str = get_clsid_buffer()
+    local reason = str[clsid_invert[obj:clsid()]]
+    log('trade type for [%s] = [%s]', obj:section(), reason)
+    assert(is_string(reason), 'obj is bad, trade module does not support [%s] class ', clsid_invert[obj:clsid()])
+    return reason
+end
+--//------------------------------------------------------------
+local function fill_deficit_data(obj)
+    if not is_trader_mode(obj) then return end
+    local st = ts[obj and obj:id()]
+    local ini, str = st.config, st.current_buy_supplies
+    local n,result,section,value = ini:line_count(str)
+    for i = 0, n-1 do
+        result,section,value = ini:r_line(str, i, "", "")
+        local count,prob = value:match("(.+),(.+)")
+        deficit_buff[section] = (tonumber(count) or 1)*(tonumber(prob) or 1)
+    end
+end
+local function create_buy_supplies(npc, ini, str)
+-- npc:buy_supplies(ini, str) -- default
+--// thx Charsi
+    local item_cnt = {}
+    local item_ids = {}
+    npc:inventory_for_each(function(item,npc)
+            local section = item:section()
+            if not item_ids[section] then
+                item_ids[section] = {item:id()}
+                item_cnt[section] = 1
+            else
+                table.insert(item_ids[section],item:id())
+                item_cnt[section] = item_cnt[section] + 1
+            end
+        end)
+    local new_items = {}
+    local n = ini:line_count(str)
+    for i = 0, n-1 do
+        local result, section, value = ini:r_line(str, i, "", "")
+        local count,prob = value:match("(.+),(.+)")
+        count,prob = tonumber(count),tonumber(prob)
+        for i=1,count do
+            if math.random()<prob then
+                item_cnt[section] = (item_cnt[section] or 0) - 1
+            end
+        end
+    end
+    for sect, cnt in pairs(item_cnt) do
+        if cnt>0 then
+            -- удаляем лишнее
+            for i=1,cnt do
+                local so = sim:object(item_ids[sect][i])
+                if so then sim:release(so) end
+            end
+        elseif cnt<0 then
+            -- спавним недостающее
+            for i=1,-cnt do
+                sim:create(sect, vector(), 0, 0, npc:id())
+            end
+        end
+    end
+end
+--//------------------------------------------------------------
+local function set_default_buy_condition(obj)
+    local st = ts[obj and obj:id()]
+    local str = cfg_get_string(st.config, "trader", "default_buy_condition")
+    if not is_string(str) then return end
+    str = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+    assert(st.config:section_exist(str), 'Invalid current default_buy_condition section, check section name', str)
+    local value = st.config:r_string(str, 'value')
+    local f,e = value:match("(.+),(.+)")
+    local friend, enemy = tonumber(f) or 1, tonumber(e) or 1
+    obj:buy_condition(friend, enemy)
+end
+local function set_default_sell_condition(obj)
+    local st = ts[obj and obj:id()]
+    local str = cfg_get_string(st.config, "trader", "default_sell_condition")
+    if not is_string(str) then return end
+    str = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+    assert(st.config:section_exist(str), 'Invalid current default_sell_condition section, check section name', str)
+    local value = st.config:r_string(str, 'value')
+    local f,e = value:match("(.+),(.+)")
+    local friend, enemy = tonumber(f) or 1, tonumber(e) or 1
+    obj:sell_condition(friend, enemy)
+end
+local function set_show_condition(obj, forced) --// Karlan: возможность есть, использования нет, покажем народу где раки...
+    local st, str = ts[obj and obj:id()]
+    if forced then
+        str = forced
+    else
+        str = cfg_get_string(st.config, "trader", "show_condition")
+        if str == nil then if st.reload_show then ts[obj:id()]['reload_show'] = nil end return end
+        str = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+        assert(st.config:section_exist(str), 'st.config:section_exist(%s)', str)
+    end
+    if (st.current_show_condition ~= str) or forced or st.reload_show then
+        log("[show_condition] for [%s]:set section = [%s]:reload = [%s]", obj:name(), str, st.reload_show~=nil)
+        obj:show_condition(st.config, str)
+        st.current_show_condition = str
+        ts[obj:id()]['reload_show'] = nil
+    end
+end
+local function set_buy_condition(obj, forced) --// позволяет формировать конфиг из самой системы, а также напрямую передав динамический лтх
+    local st, str = ts[obj and obj:id()]
+    if forced then
+        str = forced
+    else
+        str = cfg_get_string(st.config, "trader", "buy_condition", obj, true, "")
+        assert(str~=nil, "Incorrect trader settings. Cannot find buy_condition. [%s]->[%s]", obj:name(), st.cfg_ltx) --// предполагается обязательным параметром
+        str = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+        assert(st.config:section_exist(str), 'st.config:section_exist(%s)', str)
+    end
+    if (st.current_buy_condition ~= str) or forced or st.reload_buy then --// поскольку forced секция реплейсится, то ее имя всегда будет совпадать, и если мы перегружаем часть, то вот эту часть как раз надо обновить 
+        log("[buy_condition] for [%s]:set section = [%s]:reload = [%s]", obj:name(), str, st.reload_buy~=nil)
+        obj:buy_condition(st.config, str)
+        st.current_buy_condition = str
+        ts[obj:id()]['reload_buy'] = nil
+    end
+end
+local function set_sell_condition(obj, forced)
+    local st, str = ts[obj and obj:id()]
+    if forced then
+        str = forced
+    else
+        str = cfg_get_string(st.config, "trader", "sell_condition", obj, true, "")
+        assert(str~=nil, "Incorrect trader settings. Cannot find sell_condition. [%s]->[%s]", obj:name(), st.cfg_ltx) --// предполагается обязательным параметром
+        str = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+        assert(st.config:section_exist(str), 'st.config:section_exist(%s)', str)
+    end
+    if (st.current_sell_condition ~= str) or forced or st.reload_sell then
+        log("[sell_condition] for [%s]:set section = [%s]:reload = [%s]", obj:name(), str, st.reload_sell~=nil)
+        obj:sell_condition(st.config, str)
+        st.current_sell_condition = str
+        ts[obj:id()]['reload_sell'] = nil
+    end
+end
+local function set_buy_supplies(obj, forced)
+    local st, str = ts[obj and obj:id()]
+    if not st then return end --// на загрузке при вызове конструктора таймера, само поле в ts уже есть, но вот объекта еще разумеется нет, соответственно надо сматыватся
+    if forced then 
+        if is_string(forced) then
+            str = forced
+        else --// для случаев обычного обновления текущего ассортимента для статического (оригинального) конфига
+            if st.buy_supplies==nil then return end --// фейкового ассортимента у него не предусмотрено, ну тогда и нечего его мурыжить
+            str = xr_logic.pick_section_from_condlist(obj, st.buy_supplies) --// может быть опасно при вызове повторяющихся экшнов
+            if st.script_trade then
+                --// если у нас совсем бешено-рандомная скриптовая торговля, то тут самое время поменять весь лист
+            end
+        end
+    else
+        if not st.buy_supplies then --// разгружаем, если при срабатывании обновления у этого торговца конфиг не поменялся, то даже париться не будем, а просто обновим ассортимент
+            str = cfg_get_string(st.config, "trader", "buy_supplies", obj)
+            st.buy_supplies = str and parse_condlist(str) or nil --// предполагается необязательным параметром
+        end
+        if st.buy_supplies==nil then return end --// фейкового ассортимента у него не предусмотрено, ну тогда и нечего его мурыжить
+        str = xr_logic.pick_section_from_condlist(obj, st.buy_supplies)
+        assert(st.config:section_exist(str), 'st.config:section_exist(%s)', str)
+    end
+    if (st.current_buy_supplies ~= str) or forced then
+        log("[buy_supplies] for [%s]:set section = [%s]", obj:name(), str)
+        create_buy_supplies(obj, st.config, str)
+        log("[buy_supplies] created")
+        st.current_buy_supplies = str
+    end    
+end
+--//------------------------------
+local function set_discounts(obj, forced, discount_type, item_type)
+    local st = ts[obj and obj:id()]
+    if not st.discounts then
+        st.discounts = {}
+        st.discounts.buy = {}
+        st.discounts.sell = {}
+    end
+    if forced then
+        if is_number(forced) then --// change mode
+            assert(is_string(discount_type), 'is_string(discount_type)')
+            assert(is_string(item_type), 'is_string(item_type)')
+            st.discounts[discount_type][item_type] = forced
+        end
+        if is_table(forced) then --// (re)set mode
+            if is_string(discount_type) then
+                st.discounts[discount_type] = forced
+            else
+                st.discounts = forced
+            end
+        end
+    else
+        local str = cfg_get_string(st.config, "trader", "discounts")
+        if not str then return log('section [discounts] does not matched in st.config') end
+        local sect = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+        for i=0, st.config:line_count(sect)-1 do
+            local res, key, value = st.config:r_line(str, i, "", "")
+            local buy, sell = value:match("(.+),(.+)")
+            buy, sell = tonumber(buy) or 1, tonumber(sell) or 1
+            st.discounts.buy[key] = buy
+            st.discounts.sell[key] = sell
+        end
+    end
+    table.print(st.discounts, 'discounts')
+end
+local function get_discounts(trader, item, discount_type) --// Karlan->Karlan: не лучший вариант, технически грамотнее возвратить сразу Fvector2
+    local st = ts[trader and trader:id()]
+    assert(st, 'trader not finded in trade storage')
+    assert(st.config, 'trader is not configurated')
+    if not is_table(st.discounts[discount_type]) then
+        log('trader has no discounts')
+        return 1
+    end
+    local type_items = get_item_trade_type(item)
+    local discount = st.discounts[discount_type][type_items]
+    if not is_number(discount) then
+        log('directed type does not finded')
+        discount = st.discounts[discount_type]['base']
+    end
+    if not is_number(discount) then
+        log('base type does not finded, return 1')
+        discount = 1
+    end
+    return discount
+end
+--//------------------------------
+--// Karlan->ALL: sell condition вырезал, так как игрок пусть сам глазами смотрит и головой думает
+local function set_conditions(obj, forced, condition_type, item_type)
+    local st = ts[obj and obj:id()]
+    if not st.conditions then
+        st.conditions = {}
+        st.conditions.buy = {}
+        -- st.conditions.sell = {}
+    end
+    if forced then
+        if is_number(forced) then --// change mode
+            assert(is_string(condition_type), 'is_string(condition_type)')
+            assert(is_string(item_type), 'is_string(item_type)')
+            st.conditions[condition_type][item_type] = forced
+        end
+        if is_table(forced) then --// (re)set mode
+            if is_string(condition_type) then
+                st.conditions[condition_type] = forced
+            else
+                st.conditions = forced
+            end
+        end
+    else
+        local str = cfg_get_string(st.config, "trader", "conditions")
+        if not str then return log('section [conditions] does not matched in st.config') end
+        local sect = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+        for i=0, st.config:line_count(sect)-1 do
+            local res, key, value = st.config:r_line(str, i, "", "")
+            local buy, sell = value:match("(.+),(.+)")
+            buy, sell = tonumber(buy) or 1, tonumber(sell) or 1
+            st.conditions.buy[key] = buy
+            -- st.conditions.sell[key] = sell
+        end
+    end
+    table.print(st.conditions, 'conditions')
+end
+local function get_conditions(trader, item, condition_type) --// Karlan->Karlan: не лучший вариант, технически грамотнее возвратить сразу Fvector2
+    local st = ts[trader and trader:id()]
+    assert(st, 'trader not finded in trade storage')
+    assert(st.config, 'trader is not configurated')
+    if not is_table(st.conditions[condition_type]) then
+        log('trader has no conditions')
+        return 0
+    end
+    local type_items = get_item_trade_type(item)
+    local condition = st.conditions[condition_type][type_items]
+    if not is_number(condition) then
+        log('directed type does not finded')
+        condition = st.conditions[condition_type]['base']
+    end
+    if not is_number(condition) then
+        log('base type does not finded, return 0')
+        condition = 0
+    end
+    return condition
+end
+--//------------------------------
+local function set_barter(obj)
+    local st = ts[obj and obj:id()]
+    local barter_ini = cfg_get_string(st.config, "trader", "barter")
+    if not barter_ini then return log('NPC does not barter') end
+    local sect = xr_logic.pick_section_from_condlist(obj, parse_condlist(barter_ini))
+    assert(st.config:section_exist(sect), 'st.config:section_exist(%s)', sect)
+    obj:set_barter_mode(true)
+    st.barter = {}
+    local reference_item = cfg_get_string(st.config, sect, "reference_item")
+    st.barter.ref_price = false --// флаг того, что это свободный обмен основанный на отклонении цены корзины в чью либо пользу
+    if reference_item then
+        local price = cfg_get_number(sini, reference_item, "cost")
+        assert(is_number(price), 'Invalid price for item [%s]', reference_item)
+        st.barter.ref_price = price
+    end
+    if not is_number(st.barter.ref_price) then
+        string_table.replace_string('ui_st_pieces_regional', game.translate_string('null_string'))
+        log('set_barter string replaced [%s]', game.translate_string('ui_st_pieces_regional'))
+    end
+    local lock_sell = cfg_get_string(st.config, sect, "lock_sell")
+    if lock_sell then
+        --// итемы которые нпс не может продавать
+        st.barter.locked = {}
+        for i,v in ipairs(parse_names(lock_sell)) do
+            assert(is_string(v), 'is_string(%s)', v)
+            st.barter.locked[v] = true
+        end
+    end
+    local allow_buy = cfg_get_string(st.config, sect, "allow_buy")
+    if allow_buy then
+        --// итемы которые нпс может покупать
+        st.barter.allows = {}
+        for i,v in ipairs(parse_names(allow_buy)) do
+            assert(is_string(v), 'is_string(%s)', v)
+            st.barter.allows[v] = true
+        end
+    end
+    local bool_btn = cfg_get_bool(st.config, sect, "hide_button", false)
+    obj:show_trade_btn(true)
+    if bool_btn then
+        obj:show_trade_btn(false)
+    end
+end
+--//------------------------------
+local function set_need_artefact(obj)
+    if is_string(need_art) then return end
+    if not is_table(manager_task.get_random_task().current_parent_type_prior) then return end --// Karlan: прежде чем назначать арт игрок должен поинтересоваться что это за арт
+    local tasks = manager_task.get_random_task():get_task_info()
+    local parent = manager_task.get_random_task():get_parent(obj)
+    for _,v in pairs(tasks) do
+        if v.parent == parent and v.type == 'artefact' and manager_task.get_random_task():task_avail(_,_,_,_,v.init_phrase_id) then
+            need_art = v.target
+            return --/> цепочка, как правило, одна, так что валим
+        end
+    end
+end
+--//------------------------------------------------------------
+local function trade_init(obj, reinit) --// Karlan->Karlan: загрузку самих данных можно вызывать непосредственно при старте торговли, плюс только в красивостях, так что нафиг
+    assert(is_userdata(obj), 'is_userdata(obj)')
+    if blocked_trade(obj) then return log('trade has blocked for <%s>', obj) end --// Карлан: не следует возиться с теми, с кем мы сейчас не можем поторговать
+    local id = get_id(obj)
+    local st = db.storage[id]
+    assert(is_table(st), 'is_table(st)')
+    log('stype = [%s]:ini = [%s]:section_logic = [%s] ', st.stype, st.ini, st.section_logic)
+    log('original trade cfg = [%s] ', cfg_get_string(st.ini, st.section_logic, "trade", obj, false, "", "misc\\manager_trade\\trade_generic.ltx"))
+    if st.stype == modules.stype_stalker or st.stype == modules.stype_trader or obj:clsid() == clsid.script_trader then
+        local trade_ini = cfg_get_string(st.ini, st.section_logic, "trade", "misc\\manager_trade\\trade_generic.ltx")
+        local script = cfg_get_bool(st.ini, st.section_logic, "script_trade", false)
+        if script then 
+            -- trade_ini = blablabla --// вот тут можно ставить лист формируемый скриптом
+        end
+if _OLD_TRADE_ then --// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        trade_init_old(obj, trade_ini)
+else --// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        local tt = nil
+        if is_table(ts[id]) and ts[id].cfg_ltx and not reinit then
+            tt = ts[id]
+        else
+            tt = {cfg_ltx = trade_ini, allow_trade = true, script_trade = script==true}
+            ts[id] = tt
+        end
+        tt.is_dltx = tt.cfg_ltx:match('^%[')
+        if tt.is_dltx then
+            log('dltx')
+            tt.config = create_ini_file(tt.cfg_ltx)
+        else
+            log('cltx')
+            tt.config = ini_file(tt.cfg_ltx)
+        end
+        if not tt.net_profit then
+            tt.net_profit = {}
+            local _min,_max = 5,10
+            if is_trader_mode(obj) then
+                _min,_max = _min*2,_max*2
+            end
+            table.insert(tt.net_profit, math.random(_min,_max)/365)
+        end
+        
+        set_default_buy_condition(obj)
+        set_default_sell_condition(obj)
+        set_show_condition(obj)
+        set_buy_condition (obj)
+        set_sell_condition(obj)
+        set_discounts(obj)
+        set_conditions(obj)
+        set_barter(obj)
+        -- set_need_artefact(obj) --// Karlan: пока вырубим
+        if not is_trader_mode(obj) then --// Karlan: обновление ассортимента предполагается только для реальных барыг, обычных сталкеров на таймер ясное дело не сажаем
+            snakefish_reset = true
+            reset_snakefish_items(obj)
+            return 
+        end
+        if not m_timers.timer_exists("karlan_trade_timer"..tostring(id)) then
+            log('create timer [%s] of object <%s>', "karlan_trade_timer"..tostring(id), obj)
+            trade_update_timer("karlan_trade_timer"..tostring(id), obj, id):cyclic():set_gdelay():start() --// самая первая стартовая инициализация
+            log('timer created')
+        end
+        local timer = m_timers.get_timer("karlan_trade_timer"..tostring(id))
+        assert(timer, 'timer')
+        timer:reset_object(obj, id)
+        if reinit then
+            timer:set_reinit(true)
+        end
+        timer:update_list() --// Karlan: если нам надо было перезагрузить лист, когда непись был к этому не способен, то сделаем это сейчас
+        fill_deficit_data(obj)
+end --// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    end   
+end
+--//------------------------------------------------------------
+--// экономика
+local function get_inflation_rate(target_inflation) --// fixed factor
+    return inflation_rate[math.abs(target_inflation)+1+target_inflation]
+end
+
+local function get_net_profit(obj, target_net_profit) --// fixed factor
+    if not obj or (obj:id() == actor_id) then
+        return 0 --// Karlan: актор - добрая душа :)
+    end
+    local st = ts[obj and obj:id()]
+    assert(is_table(st.net_profit), 'is_table(st.net_profit)')
+    local i = math.abs(target_net_profit)+1+target_net_profit
+    log('* net_profit of [%s] = [%s]', obj:name(), st.net_profit[i])
+    if not st.net_profit[i] then --// Karlan: профит у некоторых будет не успевать за инфляцией, поэтому его надо проставить по тому же алгоритму
+        local _min,_max = 5,10
+        if is_trader_mode(obj) then
+            _min,_max = _min*2,_max*2
+        end
+        st.net_profit[i] = math.random(_min,_max)/365
+    end
+    return st.net_profit[i]
+end
+
+local function calculate_compounding(obj, index)
+    local r,a = get_net_profit(obj, index)/100, get_inflation_rate(index)/100
+    local result = (1 + r) * (1 + a) - 1
+    -- log('* r = %s, a = %s, res = %s',r,a,result)
+    return result*100
+end
+
+local function calculate_capvalue(item, costs, obj)
+    local st = nominal_prices[item:section()]
+    if not st then
+        assert(is_table(nominal_prices['zaglushka']), "is_table(nominal_prices['zaglushka'])")
+        assert(nominal_prices['zaglushka'].inflation_recalculate<1, "nominal_prices['zaglushka'].inflation_recalculate<1 (%s)", nominal_prices['zaglushka'].inflation_recalculate)
+        log('section %s doesnt find in nominal_prices', item:section()) --// warning???
+        nominal_prices[item:section()] = {inflation_recalculate = nominal_prices['zaglushka'].inflation_recalculate}
+        st = nominal_prices[item:section()]
+    end
+    local gain = st.gain or 0
+    local i = 0 --// DEBUG !!!
+    while st.inflation_recalculate ~= 1 do
+        i = i+1 --// DEBUG !!!
+        local cost = costs.gross_price+gain
+        local p = calculate_compounding(obj, st.inflation_recalculate)
+        local fv = (cost/100)*p + cost
+        local pv = fv * 1/(1+p/100)^(-1/365)
+        gain=gain+(pv-cost)
+        log('* inflation = [%s], CC = [%s], R = [%s], FV = [%s], PV = [%s], gain = [%s]', inflation_rate[math.abs(st.inflation_recalculate)+1+st.inflation_recalculate], cost, p, fv, pv, gain)
+        st.inflation_recalculate = st.inflation_recalculate+1
+        log('~%s>[day:%s]', string.rep('~', 20), i or -1)
+    end
+    log('# net gain = [%s]', gain)
+    st.gain = gain
+    gain = gain*costs.condition_factor*costs.action_factor*costs.deficit_factor --// приращение нужно также размазать
+    gain = math.ceil(gain)
+    log('# result gain = [%s]', gain)
+    log('# result info = [%s]:[%s = %s+%s]', item:parent():name(), costs.net_price+gain,costs.net_price,gain)
+    local net_price = costs.net_price+gain
+    return net_price
+end
+
+class "superviser" (m_timers.savable_timer)
+function superviser:__init(timer_id) super(timer_id)
+    self._class = script_name()..".superviser"
+    self:taction()
+end
+
+function superviser:taction()
+    if _DEBUG_ and has_info('ui_trade') then return end
+    local inflation = math.random(60,80)--math.random(600,800) --// Karlan: а ну-ка нафиг нам такую инфляцию, рюкзаки по паре мультов во фриплее!
+    if math.random(100) < 10 then
+        log('inflation adds')
+        inflation=inflation+math.random(15,30)--math.random(50,100)
+    end
+    inflation = inflation/365
+    log('current inflation = [%s]', inflation)
+    table.insert(inflation_rate, inflation)
+    for k in pairs(ts) do
+        if is_table(ts[k].net_profit) then
+            local _min,_max = 5,10
+            if m_timers.timer_exists("karlan_trade_timer"..tostring(k)) then --// dirty hack
+                log('profit calculate for [%s], HACKED!', get_name_by_id(k))
+                _min,_max = _min*2,_max*2
+            end
+            table.insert(ts[k]['net_profit'], math.random(_min,_max)/365) --// переменяем все
+        end
+    end
+    for k in pairs(nominal_prices) do
+        if is_number(nominal_prices[k].inflation_recalculate) then
+            nominal_prices[k].inflation_recalculate = nominal_prices[k].inflation_recalculate-1
+        else
+            nominal_prices[k].inflation_recalculate = 0
+        end
+    end
+end
+--//------------------------------------------------------------
+class "trade_update_timer" (m_timers.savable_timer)
+function trade_update_timer:__init(timer_id, obj, id) super(timer_id)
+    self._class = script_name()..".trade_update_timer"
+    set_buy_supplies(obj)
+    self.trader_id = id --// Karlan->Karlan: может быть проблема, если какой-то придурок начнет переспавнивать торговца, тогда весь его таймер собьется к черту, еще так же проблема может быть когда удаляем в оффлайне, поэтому ,возможно, выгоднее сохранять его имя, надо прикинуть, погубят фраера два байта :)
+    self.object = obj
+    --//----------
+    self.reinit_flag = false
+    self.watch = false
+    self.tact = 0
+    log('timer constructed')
+end
+function trade_update_timer:reset_object(obj, id)
+    self.trader_id = id
+    self.object = obj
+end
+function trade_update_timer:taction()
+    log('start taction')
+    assert(self.trader_id, 'self.trader_id')
+    if has_info('ui_trade') and level.get_talker():id() == self.trader_id then
+        log('<name=[%s]:[%s]>:set watch', self.object and self.object:name(), self.trader_id)
+        self.watch = true
+        return
+    end
+    self.object = level.object_by_id(self.trader_id)
+    log('level.object_by_id(self.trader_id) = <%s>', self.object)
+    if not self.object then --// Karlan: для случаев, когда обновить уже надо, но мы в оффлайне
+        self.reinit_flag = true
+        log('object [%s]:<sid=%s> is offline, set reinit_trade', get_name_by_id(self.trader_id), sid_by_id(self.trader_id))
+        send_new(get_name_by_id(self.trader_id))
+        return
+    end
+    local st = ts[self.trader_id]
+    log('<name=[%s]:[%s]>:attempt to call set_buy_supplies(self.object, true) in trade_update_timer:taction()', self.object and self.object:name(), self.trader_id)
+    send_new(get_name_by_id(self.trader_id))
+    set_buy_supplies(self.object, true)
+end
+function trade_update_timer:update_list()
+    if self.reinit_flag then
+        log('<name=[%s]:[%s]>:attempt to call set_buy_supplies(self.object, true) in trade_update_timer:update_list()', self.object and self.object:name(), self.trader_id)
+        self:stop(true) --// Karlan: сбрасываем время цикла и начинаем отсчет сначала
+        set_buy_supplies(self.object, true)
+        self.reinit_flag = false
+    end
+end
+function trade_update_timer:set_reinit(bool)
+    self.reinit_flag = bool
+end
+function trade_update_timer:condition()
+    if self.watch and has_info('ui_trade_hide') then
+        self.watch = false
+        send_new(get_name_by_id(self.trader_id), math.random(5,10)) --// тут убогая несохраняемая движковая девиация, будем надеятся, что в этот период никто не будет перезагружатся
+        log('<name=[%s]:[%s]>:attempt to call set_buy_supplies(self.object, true) in trade_update_timer:condition()', self.object and self.object:name(), self.trader_id)
+        set_buy_supplies(self.object, true) --// это такой хак чтобы не создавать action, ибо лень, а раз лень, то нефиг :)
+        log('<name=[%s]:[%s]>:unset watch', self.object and self.object:name(), self.trader_id)
+        return true
+    end
+    return false
+end
+function trade_update_timer:set_period()
+    local period = 24*3600 + math.random(-6,6)*3600
+    if _DEBUG_ then period = 5*60 end --// for test
+    log('game hours to trade update [%s]:[%s]:[%s]', period/3600, self.object and self.object:name(), self.trader_id)
+    return period
+end
+function trade_update_timer:save(pk) --// +3 байта
+    pk:w_u16(self.trader_id)
+    pk:w_bool(self.reinit_flag)
+end
+function trade_update_timer:load(pk)
+    self.trader_id = pk:r_u16()
+    self.reinit_flag = pk:r_bool()
+end
+--//-----------------------------------------------------------------------------------------------
+--// Callbacks
+--//-----------------------------------------------------------------------------------------------
+local function start_dialog(e)
+    local obj = e.obj
+    log('relations for [%s:(%s)] = [p(%s)]:[c(%s)]', obj:name(), obj:character_community(), get_npc_goodwill(obj, actor), get_factions_community_goodwill(obj:character_community(), actor_id))
+    log('get_trader_goodwill = [%s]:(%s/%s)', get_trader_goodwill(obj), get_npc_goodwill(obj, actor)/1000, get_factions_community_goodwill(obj:character_community(), actor_id)/5000)
+    trade_init(obj, false)
+end
+local function npc_death(e)
+    local id = e.obj_id
+    if m_timers.timer_exists("karlan_trade_timer"..tostring(id)) then
+        local timer = m_timers.get_timer("karlan_trade_timer"..tostring(id))
+        timer:stop()
+    end
+    rawset(ts, id, nil)
+end
+local function npc_destroy(e)
+    local id = e.obj_id
+    local sobj = sim:object(id)
+    if sobj then return end
+    if m_timers.timer_exists("karlan_trade_timer"..tostring(id)) then
+        local timer = m_timers.get_timer("karlan_trade_timer"..tostring(id))
+        timer:stop()
+    end
+    rawset(ts, id, nil)
+end
+local function info_received(e)
+    if e.info == 'ui_trade_hide' then
+        string_table.replace_string('ui_st_pieces_regional', game.translate_string('ui_st_pieces_regional_safe'))
+        -- log('callback string replaced [%s]', game.translate_string('ui_st_pieces_regional'))
+        if bargain_link then --// Karlan: сталкер по каким-то причинам решил нас послать подальше с нашими распинаниями
+            level.start_stop_menu(bargain_link, false)
+        end
+        local obj = level.get_talker()
+        if entry_trade and is_userdata(obj) then --// Karlan: будем считать, если сталкер сам прервал торговлю, то обижатся он не будет
+            local changed = math.random(5)*-1
+            change_npc_goodwill(obj, actor, changed)
+            log('entry_trade = %s, changed [%s]:[%s]:[%s]', changed, get_npc_goodwill(obj, e.actor), get_weighted_goodwill(obj, e.actor), get_two_goodwill(obj, e.actor))
+            entry_trade = false
+            snakefish_reset = true
+            reset_snakefish_items(obj)
+            if is_trader_mode(obj) then
+                obj:iterate_inventory(function(_, item)
+                    if item:condition_dec() > 0 and item:condition() < 0.9 then
+                        local sobj = sim:object(item:id())
+                        if sobj then sim:release(sobj) end
+                    end
+                end)
+            end
+        end
+    end
+    if e.info == 'ui_trade' then
+        snakefish_reset = true --// Karlan->Karlan: оптимизировать, сейчас на старте дергается дважды, это нехорошо
+        reset_snakefish_items(level.get_talker())
+        entry_trade = true
+    end
+end
+local function actor_spawn(e)
+    if not m_timers.timer_exists("karlan_trade_superviser") then
+        local d,m = 1,0
+        if _DEBUG_ then d,m = 0,2 end
+        superviser("karlan_trade_superviser"):cyclic():set_gdelayDHMS(d,0,m,0):start()
+    end
+    if table.size(nominal_prices) < 1 then
+        local ini = ini_file("misc\\manager_trade\\_data_trade.ltx") --// пока так, потом нужно будет список доделать
+        for i=0, ini:line_count('gain_data')-1 do
+            local _, id   = ini:r_line('gain_data',i,'','')
+            nominal_prices[id] = {inflation_recalculate = 0}
+        end
+        table.print(nominal_prices, 'nominal_prices')
+    end
+end
+local function trade_perform(e)
+    log('~%s>[trade_operation:%s]:>', string.rep('~', 41), 'start')
+    log('$trade_perform called: get = [%s] put = [%s]', e.money_get, e.money_put) --// проданные актору товары (уплаченные деньги), проданные торговцу товары (полученные деньги)
+    local obj = e.obj
+    log('* before goodwill [%s]:[%s]:[%s]', get_npc_goodwill(obj, actor), get_weighted_goodwill(obj, actor), get_two_goodwill(obj, actor))
+    local get_divider, put_divider = is_trader_mode(obj) and 500 or 50, is_trader_mode(obj) and 1000 or 100
+    local buy_coeff, sell_coeff, bad_coeff = math.clamp(e.money_get/get_divider, 0, math.huge), math.clamp(e.money_put/put_divider, 0, math.huge), 0
+    if is_trader_mode(obj) and (get_trader_goodwill(obj) > 0.65) and (e.money_get < 1000) then --// TODO: учесть что ничего не продали
+        bad_coeff = (buy_coeff*2)*-1
+    end
+    goodwill_coeff = buy_coeff+sell_coeff+bad_coeff
+    log('* results = bc [%f], sc [%f], bc[%f], rs [%f]', buy_coeff, sell_coeff, bad_coeff, goodwill_coeff)
+    money_get, money_put = e.money_get, e.money_put
+end
+local function trade_action(e)
+    log('%item = %s, sell_bye = %s, money = %s', e.item, e.sell_bye, e.money)
+    if e.item:is_artefact() then
+        local add = e.money/(e.sell_bye and money_put or money_get)
+        add = add/2
+        log('* add coeff [%f]', add)
+        goodwill_coeff = goodwill_coeff+add
+        art_count = art_count+1
+    end
+end
+local function trade_terminate(e)
+    local obj = e.obj
+    if goodwill_coeff < art_count then --// Karlan: не будем доводить игрока до запускания клавиатуры в монитор :)
+        goodwill_coeff = art_count
+    end
+    goodwill_coeff = (art_count>0) and math.ceil(goodwill_coeff) or math.floor(goodwill_coeff)
+    log('* finish result = [%f]', goodwill_coeff)
+    change_npc_goodwill(obj, actor, goodwill_coeff)
+    if goodwill_coeff < 0 then
+        local st = ts[obj and obj:id()]
+        st.ui_set.buy = get_trader_goodwill(obj)
+        st.ui_set.sell = 2 - st.ui_set.buy
+    end
+    entry_trade = false
+    snakefish_reset = true
+    money_get, money_put, goodwill_coeff, art_count = nil, nil, nil, 0
+    log('* after goodwill [%s]:[%s]:[%s]', get_npc_goodwill(obj, actor), get_weighted_goodwill(obj, actor), get_two_goodwill(obj, actor))
+    log('~%s>[trade_operation:%s]:<', string.rep('~', 41), 'end')
+end
+local function stop_dialog(e)
+    clear_snakefish_items()
+    deficit_factor = nil
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+local function presets()
+    if not loaded then abort('not init!') end
+    
+    event("start_dialog"):register(start_dialog)
+    event("npc_death"):register(npc_death)
+    event("npc_destroy"):register(npc_destroy)
+    event("trader_destroy"):register(npc_destroy)
+    event("info_received"):register(info_received)
+    event("actor_spawn"):register(actor_spawn)
+    event("trade_perform"):register(trade_perform)
+    event("trade_terminate"):register(trade_terminate)
+    event("trade_action"):register(trade_action)
+    event("stop_dialog"):register(stop_dialog)
+end
+--//-------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-----------------------------------------------------------------------------------------------
+--// Serialization module
+--//-----------------------------------------------------------------------------------------------
+function save(pk)
+    table.print(ts, 'save ts')
+    local copy_ts = table.copy(ts) --// постоянно делаем простую копию таблицы чтобы не летать по ходу игры
+    for k,v in pairs(copy_ts) do
+        copy_ts[k].config = nil
+    end
+    pk.ts = copy_ts
+    pk.np = nominal_prices
+    pk.ir = inflation_rate
+end
+function load(pk)
+    ts = pk.ts
+    for k in pairs(ts) do
+        if ts[k].cfg_ltx:match('^%[') then
+            log('load dltx')
+            ts[k].config = create_ini_file(ts[k].cfg_ltx)
+        else
+            log('load cltx')
+            ts[k].config = ini_file(ts[k].cfg_ltx)
+        end
+        if not ts[k].allow_trade then
+            block_trade(obj, true)
+        end
+        ts[k].reload_buy = true
+        ts[k].reload_sell = true
+        ts[k].reload_show = true
+    end
+    table.print(ts, 'load ts')
+    nominal_prices = pk.np
+    inflation_rate = pk.ir
+end
+--//-----------------------------------------------------------------------------------------------
+--// External functions
+--//-----------------------------------------------------------------------------------------------
+function disable_trade(obj)
+    assert(is_userdata(obj), "bad argument #1 to 'disable_trade' (userdata excepted, got %s)", type(obj))
+    local st = ts[obj and obj:id()]
+    if st then
+        block_trade(obj, true)
+        st.allow_trade = not blocked_trade(obj)
+        assert(st.allow_trade~=true, 'st.allow_trade~=true')
+    end
+end
+
+function enable_trade(obj)
+    assert(is_userdata(obj), "bad argument #1 to 'enable_trade' (userdata excepted, got %s)", type(obj))
+    local st = ts[obj and obj:id()]
+    if st then
+        block_trade(obj, false)
+        trade_init(obj, true)
+        st.allow_trade = blocked_trade(obj)
+        assert(st.allow_trade==true, 'st.allow_trade==true')
+    end
+end
+
+function update_current_list(obj)
+    assert(is_userdata(obj), "bad argument #1 to 'update_current_list' (userdata excepted, got %s)", type(obj))
+    local st = ts[obj and obj:id()]
+    if st then
+        if m_timers.timer_exists("karlan_trade_timer"..tostring(id)) then
+            local timer = m_timers.get_timer("karlan_trade_timer"..tostring(id))
+            timer:set_reinit(true)
+        end
+    end
+end
+
+function trade_remove(npc)
+    npc_death{obj_id = get_id(npc)}
+end
+
+function trade_remove_safe(npc) --// настоятельно рекомендую вызывать при ручном удалении любого объекта (сразу ПОСЛЕ удаления)
+    npc_destroy{obj_id = get_id(npc)}
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+--// engine hacks [start]
+local hack_marker = -1 --// флаг для синхронизации экшна и статика
+function to_our_bag(partner, item_object) --// обычная функция, нужна для поддержки
+    -- log('to_our_bag called, partner = [%s], item = [%s]:[%s], snakefish_items = [%s]', partner:name(), item_object:section(),item_object:id(),snakefish_items[item_object:section()])
+    dec_snakefish_items(item_object:section())
+    hack_marker = 4
+end
+function to_others_bag(partner, item_object) --// обычная функция, нужна для поддержки
+    -- log('to_others_bag called, partner = [%s], item = [%s]:[%s], snakefish_items = [%s]', partner:name(), item_object:section(),item_object:id(),snakefish_items[item_object:section()])
+    inc_snakefish_items(item_object:section())
+    hack_marker = 5
+end
+function allow_item_to_trade(owner, item, allow_cfg) --// добавлять ли в торговый список этот итем у этого овнера?
+    --// Karlan->ALL: если итем не торгуемый по флагу, либо квестовый, то все равно не добавится, таковы правила и в этом изюминка
+    log('allow_item_to_trade called, owner = [%s], item = [%s]:[%s], item allow in cfg = [%s]', owner:name(), item:section(),item:id(),allow_cfg)
+    if not level.get_talker() and not has_info('ui_trade') then return true end --// Karlan: функция вызывается еще в работе inventory_for_each
+    reset_snakefish_items(owner)
+    hack_marker = 1
+    if not allow_cfg then --// сохраним оригинальный функционал
+        return false --/> в конфиге нет? ну и тут не будет
+    end
+    if owner:id() ~= actor_id and is_trader_mode(owner) then if item:condition() < 0.95 then return false end end
+if not _OLD_TRADE_ then
+    local st = ts[owner and owner:id()]
+    if st and st.barter and st.barter.locked then
+        if st.barter.locked[item:section()] then
+            return false
+        end
+    end
+end
+    if not IsTrader(owner) and is_trader_mode(owner) then
+        log('~item dont added in trade list for [%s]', owner)
+        local weapon = owner:get_wm() and owner:get_wm():get_weapon()
+        if weapon and item:id() == weapon:id() then
+            log('~[T03] weapon got by wmgr ~> [%s]', item)
+            return false
+        end
+        weapon = owner:item_in_slot(PISTOL_SLOT)
+        if weapon and item:id() == weapon:id() then
+            log('~[T03] weapon got by pistol ~> [%s]', item)
+            return false
+        end
+        weapon = owner:item_in_slot(RIFLE_SLOT)
+        if weapon and item:id() == weapon:id() then
+            log('~[T03] weapon got by rifle ~> [%s]', item)
+            return false
+        end
+    end
+    if not is_trader_mode(owner) then
+        return set_snakefish(owner, item, allow_cfg, hack_marker)
+    end
+    return true
+end
+function can_move_to_actor(partner, item, allow_cfg, update) --// актор может покупать итем из листа?
+    log('can_move_to_actor called, partner = [%s], item = [%s]:[%s]', partner:name(), item, allow_cfg)
+    -- get_item_trade_type(item) --// for test
+    hack_marker = 2
+if not _OLD_TRADE_ then
+    local st = ts[partner and partner:id()] --// Karlan->Karlan: в движке проблема исправлена, этот блок здесь остается для сохранения фишки постепенного анлока ассортимента
+    if st and st.barter and st.barter.locked then
+        if st.barter.locked[item:section()] then
+            return false
+        end
+    end
+end
+    if not is_trader_mode(partner) --[[and partner:id() ~= actor_id]] --[[and not update]] then
+        return set_snakefish(partner, item, allow_cfg, hack_marker, update)
+    end
+    return true
+end
+function can_move_to_agent(partner, item, allow_cfg, update) --// нпс может покупать итем из листа?
+    log('can_move_to_agent called, partner = [%s], item = [%s]:[%s]', partner:name(), item, allow_cfg)
+    hack_marker = 3
+if not _OLD_TRADE_ then
+    local st = ts[partner and partner:id()]
+    if st and st.barter and st.barter.allows then
+        if not st.barter.allows[item:section()] then
+            return false
+        end
+    end
+end
+    if is_trader_mode(partner) then
+        local condition = get_conditions(partner, item, 'buy')
+        if item:condition() < condition then
+            reason_msg = partner:character_name()..' не купит предмет в таком состоянии'
+            return false
+        end
+    end
+    if not is_trader_mode(partner) --[[and partner:id() ~= actor_id]] --[[and not update]] then
+        return set_snakefish(partner, item, allow_cfg, hack_marker, update)
+    end
+    return true
+end
+function set_static_text(partner, item, iin_npc_list) --// подсказка: почему итем не торгуется?
+    -- log('set_static_text called, item = [%s]:[%s], item from npc list = [%s]', item:section(),item:id(), iin_npc_list)
+    --// "прямая" конкатенация не работает, формируйте строку заранее, движку нужно скармливать готовую строку, в движке я поставил SetTextST
+    -- local text = iin_npc_list and 'NPC не продает '..item:name() or 'NPC не интересуется '..item:name()
+    -- if text then
+        -- return text
+    -- end
+if not _OLD_TRADE_ then
+    local st = ts[partner and partner:id()]
+    if st and st.barter and st.barter.allows then
+        if not st.barter.allows[item:section()] and not iin_npc_list then
+            local reason = partner:character_name() .. ' не обменивается на предмет ' .. string.lower(get_string_name(item))
+            return reason
+        end
+    end
+    if reason_msg then --// кастомная строка имеет высший приоритет
+        local buff = reason_msg:gsub('$partner', partner:character_name())
+        reason_msg = nil
+        return buff
+    end
+    if hack_marker == 2 and iin_npc_list then
+        local reason = partner:character_name() .. ' не может продать вам эту вещь'
+        return reason
+    end
+    if hack_marker == 3 and not iin_npc_list then
+        local reason = partner:character_name() .. ' не интересуется такого типа предметами'
+        return reason
+    end
+end
+    return nil --/> LPCSTR, если нил - ничего не происходит, т.е. как в оригинале
+end
+function get_item_cost(partner, item_object, buying)
+    -- log('tb,ts = %s,%s', test_buy, test_sell)
+    local st = ts[partner and partner:id()]
+if not _OLD_TRADE_ then
+    if st and st.barter then
+        if is_number(st.barter.ref_price) then
+            return math.ceil((item_object:cost()/st.barter.ref_price))
+        end
+        local deviation = math.random(1, 20)/10 
+        return item_object:cost()*deviation --// для свободного обмена мы вычисляем цену корзины исходя из номинальной стоимости предмета + какая-то погрешность
+    end
+end
+    local cost = item_object:section():match('^cash_*(%d+)$') --// 'cash%%_*(%d+)$' | '^cash\_*(%d+)$'
+    if cost then return cost end
+    log('~%s>[section:%s][id:%s]:>', string.rep('~', 41), item_object:section(), item_object:id())
+    local discount = 1
+    if not st.ui_set then
+        st.ui_set = {}
+        st.ui_set.buy = get_trader_goodwill(partner)
+        st.ui_set.sell = 2 - st.ui_set.buy
+    end
+    log('~%s>[get_discounts]:>', string.rep('~', 20))
+    local cfg_discounts = {buy = get_discounts(partner, item_object, 'buy'), sell = get_discounts(partner, item_object, 'sell')}
+    table.print(cfg_discounts, 'cfg_discounts')
+    log('~%s>[calculate_capvalue]:>', string.rep('~', 20))
+    local capitalize_value = calculate_capvalue(item_object, karlan_costs, partner)
+    log('~%s>[get_item_cost]:>', string.rep('~', 20))
+    if buying then --// покупает НПС / актор продает
+        discount = st.ui_set.buy+0.01
+        if not is_trader_mode(partner) then --// Karlan: со всякими люмпенами нечего устраивать чикагскую биржу
+            discount = 0.8+(discount/20)
+            log('* is hartzIV')
+        end
+        discount = discount*cfg_discounts.buy --// Karlan->Karlan: или тут все-же сложение практичнее?
+        log('# discount = %s, cfg_discounts.buy = %s, price = %s', discount, cfg_discounts.buy, capitalize_value)
+    else --// покупает актор / продает НПС
+        discount = st.ui_set.sell+0.01
+        if not is_trader_mode(partner) then
+            discount = 0.9+(discount/10)
+            log('* is hartzIV')
+        end
+        discount = discount*cfg_discounts.sell
+        if not deficit_factor then
+            deficit_factor = 1
+            local cur_cnt, stor_cnt = partner:item_section_count(item_object:section()), deficit_buff[item_object:section()]
+            if is_number(stor_cnt) then deficit_factor = math.clamp(stor_cnt/cur_cnt, 0.9, 3) end
+        end
+        capitalize_value = capitalize_value*deficit_factor
+        log('# discount = %s, cfg_discounts.sell = %s, price = %s', discount, cfg_discounts.sell, capitalize_value)
+    end
+    log('~%s>[section:%s]:<', string.rep('~', 41), item_object:section())
+    local _ceil = math.ceil(capitalize_value*discount)
+    return math.clamp(_ceil, 0, _ceil) --// Karlan->ALL: цена не должна быть меньше нуля
+end
+--// engine hacks [finish]
+--//------------------------------------
+--// Karlan->Karlan: raw вариант окошка, нужно переделать три переменные в одну, две равны, последняя в строгой зависимости от первой
+class "bargain_wnd" (CUIScriptWnd)
+function bargain_wnd:__init(partner) super()
+    if not partner then return end
+    local st = ts[partner and partner:id()]
+    if not st.ui_set then
+        st.ui_set = {}
+        st.ui_set.buy = get_trader_goodwill(partner)
+        st.ui_set.sell = 2 - st.ui_set.buy
+    end
+    self.buy_coeff = st.ui_set.buy
+    self.buy_coeff = math.clamp(self.buy_coeff, 0, 1)
+    self.sell_coeff = st.ui_set.sell
+    self.sell_coeff = math.clamp(self.sell_coeff, 1, 2)
+    
+    self:Init(250,300,510,206)
+    
+    self.fon = CUIStatic()
+    self.fon:Init(0,0,510,206)
+    self.fon:InitTexture("ui_frame_error")
+    self.fon:SetStretchTexture(true)
+    self:AttachChild(self.fon)
+    
+    self.agent_frame = CUIFrameWindow()
+    self.agent_frame:Init(30,50,110,115)
+    self.agent_frame:InitTexture("ui_frame_01")
+    self.fon:AttachChild(self.agent_frame)
+    
+    self.agent_data = CUIStatic()
+    self.agent_data:Init(0,10,110,60)
+    self.agent_data:SetTextComplexMode(true)
+    self.agent_data:SetTextST(string.format(' %s\\n Уровень: %s\\n ОТНОШЕНИЯ\\n Общие: %s\\n Персональные: %s', partner:character_name(), partner:character_rank(), partner:general_goodwill(actor), partner:goodwill(actor)))
+    self.agent_data:SetTextAlign(2)
+    self.agent_data:SetTextX(-5)
+    self.agent_frame:AttachChild(self.agent_data)
+
+    self.track_bar = CUITrackBarScript() --// из-за кривой реализации оригинального пришлось писать новый класс который специально предназначен для скриптов
+    self.track_bar:Init(200,90,245,21)
+    self.track_bar:SetValue(self.buy_coeff) --// тут надо устанавливать сохраненное из стоража при повторном запуске
+    log('track bar value: %s, btn width = %s', self.track_bar:GetValue(), self.track_bar:GetBtn():GetWidth())
+    self:Register(self.track_bar, "track_bar")
+    self.fon:AttachChild(self.track_bar)
+    
+    self.track_data = CUIStatic()
+    self.track_data:Init(120,40,400,30)
+    self.track_data:SetTextComplexMode(true)
+    self:UpdateCostText()
+    self.track_data:SetTextAlign(2)
+    self.track_data:SetFont(GetFontGraffiti22Russian())
+    self.track_data:SetTextColor(255,238,153,26)
+    self.fon:AttachChild(self.track_data)
+    
+    self.reason = CUIStatic()
+    self.reason:Init(130,115,400,20)
+    self.reason:SetText("")
+    self.reason:SetTextAlign(2)
+    self.reason:SetFont(GetFontLetterica16Russian())
+    self.reason:SetTextColor(200,255,255,255)
+    self.fon:AttachChild(self.reason)
+    
+    self.btn_left = CUI3tButton ()
+    self.btn_left:Init(155,88,40,29)
+    self.btn_left:InitTexture('ui_button_arrow_left')
+    self.btn_left:SetTextComplexMode(true)
+    self:Register(self.btn_left, "btn_left")
+    self:AddCallback("btn_left",    ui_events.BUTTON_CLICKED, function(self) 
+    self.buy_coeff = self.buy_coeff-0.01; self.buy_coeff = math.clamp(self.buy_coeff, 0, 1)
+    self.sell_coeff = self.sell_coeff+0.01; self.sell_coeff = math.clamp(self.sell_coeff, 1, 2)
+    self.track_bar:SetValue(self.buy_coeff)
+    self:UpdateCostText()
+    end,    self)
+    self.fon:AttachChild(self.btn_left)
+    
+    self.btn_right = CUI3tButton ()
+    self.btn_right:Init(445,88,40,29)
+    self.btn_right:InitTexture('ui_button_arrow_right')
+    self:Register(self.btn_right, "btn_right")
+    self:AddCallback("btn_right",    ui_events.BUTTON_CLICKED, function(self) 
+    self.buy_coeff = self.buy_coeff+0.01; self.buy_coeff = math.clamp(self.buy_coeff, 0, 1)
+    self.sell_coeff = self.sell_coeff-0.01; self.sell_coeff = math.clamp(self.sell_coeff, 1, 2)
+    self.track_bar:SetValue(self.buy_coeff)
+    self:UpdateCostText()
+    end,    self)
+    self.fon:AttachChild(self.btn_right)
+    
+    self.btn = CUI3tButton ()
+    self.btn:Init("ui\\ui_btn_01", 250,140,113,26)
+    self.btn:SetText("OK")
+    self.btn:SetFont(GetFontLetterica16Russian())
+    self.btn:SetTextColor(255,216,186,140)
+    self.btn:SetTextY(2)
+    self:Register(self.btn, "btn")
+    self:AddCallback("btn",    ui_events.BUTTON_CLICKED, function(self)
+    log('get_npc_goodwill = (%s/%s):<%s>', get_npc_goodwill(partner, actor)/1000, get_weighted_goodwill(partner, actor)/1000, self.buy_coeff)
+    log('get_trader_goodwill = [%s]:(%s/%s)', get_trader_goodwill(partner), get_npc_goodwill(partner, actor)/1000, get_factions_community_goodwill(partner:character_community(), actor_id)/5000)
+    if get_trader_goodwill(partner) < self.buy_coeff and self.buy_coeff > 0 then self:UpdateReason(string.format('%s не согласен на такие условия.', partner:character_name())) return end
+    st.ui_set.buy, st.ui_set.sell = math.rounding(self.buy_coeff*100)/100, math.rounding(self.sell_coeff*100)/100
+    self:GetHolder():start_stop_menu(self,true); bargain_link = nil
+    end,    self)
+    self.fon:AttachChild(self.btn)
+    
+    self.btn_quit = CUI3tButton ()
+    self.btn_quit:Init("ui\\ui_btn_01", 370,140,113,26)
+    self.btn_quit:SetText("Отмена")
+    self.btn_quit:SetFont(GetFontLetterica16Russian())
+    self.btn_quit:SetTextColor(255,216,186,140)
+    self.btn_quit:SetTextY(2) --// default: 0
+    self:Register(self.btn_quit, "btn_quit")
+    self:AddCallback("btn_quit",    ui_events.BUTTON_CLICKED, function(self) self:GetHolder():start_stop_menu(self,true); bargain_link = nil end,    self)
+    self.fon:AttachChild(self.btn_quit)
+end
+function bargain_wnd:UpdateCostText()
+    self.track_data:SetText(string.exformat('Покупка предметов за %s% от рыночной цены\\nПродажа предметов за %s% от рыночной цены', math.rounding(self.buy_coeff*100), math.rounding(self.sell_coeff*100)))
+end
+function bargain_wnd:UpdateReason(text)
+    self.reason:SetText(text)
+    self.reason_timer = time_global() + 2000
+end
+function bargain_wnd:Update()
+    CUIScriptWnd.Update(self)
+    if self.track_bar:IsChanged() then
+        log('changed value on (%s|%s)', self.track_bar:GetBackupValue(), self.track_bar:GetValue())
+        local add = self.track_bar:GetValue()-self.track_bar:GetBackupValue()
+        self.buy_coeff = self.buy_coeff+add
+        self.sell_coeff = self.sell_coeff-add
+        self.buy_coeff = math.clamp(self.buy_coeff, 0, 1)
+        self.sell_coeff = math.clamp(self.sell_coeff, 1, 2)
+        self:UpdateCostText()
+        self.track_bar:SetValue(self.buy_coeff) --// необходимо осуществлять постоянный контроль позиции ползунка, иначе будет расхождение ползунка и реального значения
+    end
+    if self.reason_timer and self.reason_timer < time_global() then
+        self.reason:SetText("")
+    end
+end
+
+function show_bargain_wnd(partner)
+    bargain_link = bargain_wnd(partner)
+    level.start_stop_menu(bargain_link, false)
+end
+--//------------------------------------
+--// функция для замены отдельного участка торговли
+--// работает только для конфигов формируемых из скриптов (не важно динамические или нет)
+--// имя секции обязательно должно совпадать с именем ключа конфига, ваш конфиг не нарушится, так как эта функция сама как нужно переименует секцию
+function replace_list_part(obj, list) --// TODO: перепроверить
+    local st = ts[obj:id()]
+    if not st then return end
+    local _type = list:match('^%b[]'):sub(2,-2)
+    if _type:match('s$') and not st.buy_supplies then
+        st.cfg_ltx = (st.cfg_ltx~=list) and st.cfg_ltx .. '\\n' .. list or abort()
+        st.config = create_ini_file(st.cfg_ltx)
+        this['set_'.._type](obj, _type)
+        return
+    end
+    local str = cfg_get_string(st.config, "trader", _type, obj)
+    --// active_section в supplies в любом случае будет существовать, так как st.buy_supplies ~= nil
+    local active_section = xr_logic.pick_section_from_condlist(obj, parse_condlist(str))
+    list = list:gsub(_type, '['..active_section..']')
+    st.cfg_ltx = st.cfg_ltx:gsub('%['..active_section..'[^%[]+', list)
+    st.config = create_ini_file(st.cfg_ltx)
+    this['set_'.._type](obj, active_section)
+end
+--//-----------------------------------------------------------------------------------------------
+--/////////////////////////////////////////////////////////////////////////////////////////////////
+--/////////////////////////////////////////////////////////////////////////////////////////////////
+--/////////////////////////////////////////////////////////////////////////////////////////////////
+--/////////////////////////////////////////////////////////////////////////////////////////////////
+--//-----------------------------------------------------------------------------------------------
+--// Karlan->ALL: консервация, архиторговля, оставляю для тех, кого впирает оригинальная торговля
+--//-------------------------
+local trade_manager = {}
+function trade_init_old(npc, cfg)
+    trade_manager[npc:id()] = {}
+    trade_manager[npc:id()].cfg_ltx = cfg
+    trade_manager[npc:id()].config = ini_file(cfg)
+    local str = cfg_get_string(trade_manager[npc:id()].config, "trader", "buy_condition", npc, true, "")
+    if str == nil then abort("Incorrect trader settings. Cannot find buy_condition. [%s]->[%s]", npc:name(), cfg) end
+    trade_manager[npc:id()].buy_condition = parse_condlist(str)
+    str = cfg_get_string(trade_manager[npc:id()].config, "trader", "sell_condition", npc, true, "")
+    if str == nil then abort("Incorrect trader settings. Cannot find sell_condition. [%s]->[%s]", npc:name(), cfg) end
+    trade_manager[npc:id()].sell_condition = parse_condlist(str)
+    str = cfg_get_string(trade_manager[npc:id()].config, "trader", "buy_supplies", npc, false, "")
+    if str ~= nil then trade_manager[npc:id()].buy_supplies = parse_condlist(str) end
+end
+function update_old(npc)
+    local tt = trade_manager[npc:id()]
+    if tt == nil then return end
+    if tt.update_time ~= nil and tt.update_time < time_global() then return end
+    tt.update_time = time_global() + 3600000
+    local str = xr_logic.pick_section_from_condlist(npc, tt.buy_condition)
+    if(str=="" or str==nil) then abort("Wrong section in buy_condition condlist for npc [%s]!", npc:name()) end
+    if tt.current_buy_condition ~= str then
+        npc:buy_condition(tt.config, str)
+        tt.current_buy_condition = str
+    end
+    str = xr_logic.pick_section_from_condlist(npc, tt.sell_condition)
+    if(str=="" or str==nil) then abort("Wrong section in buy_condition condlist for npc [%s]!", npc:name()) end
+    if tt.current_sell_condition ~= str then
+        npc:sell_condition(tt.config, str)
+        tt.current_sell_condition = str
+    end
+    if tt.buy_supplies == nil then return end
+    str = xr_logic.pick_section_from_condlist(npc, tt.buy_supplies)
+    if(str=="" or str==nil) then abort("Wrong section in buy_condition condlist for npc [%s]!", npc:name()) end
+    if tt.current_buy_supplies ~= str then
+        if tt.resuply_time ~= nil and tt.resuply_time < time_global() then return end
+        npc:buy_supplies(tt.config, str)
+        tt.current_buy_supplies = str
+        tt.resuply_time = time_global() + 24*3600000
+    end
+end
+function save_old(obj, packet)
+    local tt = trade_manager[obj:id()]
+    -- set_save_marker(packet, "save", false, "trade_manager")
+    if tt == nil then
+        packet:w_bool(false)
+        return
+    else
+        packet:w_bool(true)
+    end
+    packet:w_stringZ(tt.cfg_ltx)
+    if tt.current_buy_condition == nil then
+        packet:w_stringZ("")
+    else
+        packet:w_stringZ(tt.current_buy_condition)
+    end
+    if tt.current_sell_condition == nil then
+        packet:w_stringZ("")
+    else
+        packet:w_stringZ(tt.current_sell_condition)
+    end
+    if tt.current_buy_supplies == nil then
+        packet:w_stringZ("")
+    else
+        packet:w_stringZ(tt.current_buy_supplies)
+    end
+    local cur_tm = time_global()
+    if tt.update_time == nil then
+        packet:w_s32(-1)
+    else
+         packet:w_s32(tt.update_time - cur_tm)
+    end
+    if tt.resuply_time == nil then
+        packet:w_s32(-1)
+    else
+         packet:w_s32(tt.resuply_time - cur_tm)
+    end
+    -- set_save_marker(packet, "save", true, "trade_manager")
+end
+function load_old(obj, packet)
+    -- set_save_marker(packet, "load", false, "trade_manager")
+    local a = packet:r_bool()
+    if a == false then return end
+    trade_manager[obj:id()] = {}
+    local tt = trade_manager[obj:id()]
+    tt.cfg_ltx = packet:r_stringZ()
+    tt.config = ini_file(tt.cfg_ltx)
+    a = packet:r_stringZ()
+    if a ~= "" then
+        tt.current_buy_condition = a
+        obj:buy_condition(tt.config, a)
+    end
+    a = packet:r_stringZ()
+    if a ~= "" then
+        tt.current_sell_condition = a
+        obj:sell_condition(tt.config, a)
+    end
+    a = packet:r_stringZ()
+    if a ~= "" then
+        tt.current_buy_supplies = a
+    end
+    local cur_tm = time_global()
+    a = packet:r_s32()
+    if a ~= -1 then
+        tt.update_time = cur_tm + a
+    end
+    a = packet:r_s32()
+    if a ~= -1 then
+        tt.resuply_time = cur_tm + a
+    end
+    -- set_save_marker(packet, "load", true, "trade_manager")
+end
+--//---------------------------------------------

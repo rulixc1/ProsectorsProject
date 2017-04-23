@@ -1,0 +1,49 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ui_wpn_params.script
+ Description: получение параметров трекбаров в окне параметров оружия
+ Copyright  : 2006 © GSC Game World
+ Author(s)  : GSC Game World 
+ Updated    : Karlan
+--]] ----------------------------------------------------------------------------------------------
+ --// Karlan->ALL: закинул на стек и компарный, если есть, если нету - тот же итем, если вообще нету то возвратит nil (!не забывайте, что это движковый гейм-объект!)
+ --// добавил функцию получения типа патронов в стволе, чтобы всегда корректно получать текущую дисперсию, а не только от первого типа, по дефолту моя функция возвращает первый тип
+_DEBUG_ = false
+local normalize = function(num) return math.clamp(num, 1, 100) end
+local read_if_exist = function (section, field, default) return cfg_get_number(sini, section, field, nil, false, default) end
+-- function GetRPM(section) --// Karlan->ALL: реализовал в движке, здесь сейчас это мусор, если движковое поведение будет при тестах корректным - вырежу
+    -- local rpm = sini:r_float(section,"rpm")
+    -- local mag_size = sini:r_float(section,"ammo_mag_size")
+    -- if rpm > 200 then           rpm = math.pow((rpm - 200)/720,2)*100 + 15
+    -- elseif mag_size < 5 then    rpm = 30
+    -- else                        rpm = rpm/14
+    -- end
+    -- return normalize(rpm)
+-- end
+function GetDamage(section)
+    local hp = sini:r_string(section,"hit_power") --// надо же получать хит по сложности, исправляем :)
+    local t = string.find(hp,',') and (parse_names(hp, true)) or tonumber(hp)
+    local param = is_table(t) and t[level.get_game_difficulty()+1] or t
+    return normalize((100*param - 25) * (100/85)) 
+end 
+function GetHandling(section)
+    local val = 0
+    local control_inertion_factor = read_if_exist(section, "control_inertion_factor", 1) 
+    local PDM_disp_base         = read_if_exist(section, "PDM_disp_base", 1)     
+    if control_inertion_factor < 2 and PDM_disp_base < 1.5 then val = (1 - math.pow(read_if_exist(section, "PDM_disp_vel_factor", 1) - 0.5, 2) + math.pow(2 - control_inertion_factor,2))*50    
+    else                                                        val = 15 - (2*PDM_disp_base + control_inertion_factor)
+    end
+    return normalize(val) 
+end
+function GetAccuracy(section)
+    local val, ammo_type = 0, wpn_object.ammo_type_in_magazine
+    local cam_dispersion = sini:r_float(section,"cam_dispersion")
+    if compare_wpn_object and (wo_sect~=cwo_sect) then ammo_type = compare_wpn_object.ammo_type_in_magazine end
+    local k_disp  = sini:r_float(ammo_type, "k_disp");
+    k_disp = (k_disp>3.5) and 0.3 or k_disp
+    local fir = math.log10(1/(sini:r_float(section,"fire_dispersion_base")*k_disp))
+    local inc = math.log10(1/(cam_dispersion/10 + read_if_exist(section, "cam_dispertion_inc", 0) ))
+    local dis = math.log10(1/(cam_dispersion*sini:r_float(section,"cam_step_angle_horz")))
+    local fra = math.pow(read_if_exist(section, "cam_dispertion_frac", 1) ,1.5)
+    val =  30*fir + 15*dis*fra + 0.02*sini:r_float(section,"rpm")*inc*fra
+    return normalize(val)
+end

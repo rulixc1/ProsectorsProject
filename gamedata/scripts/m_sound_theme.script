@@ -1,0 +1,1093 @@
+--'-------------------------------------------------------------------------------------------------------------------
+--' Реализация тем озвучки
+--' автор:  Диденко Руслан  (Stohe)
+--'	Доработка: Rulix aka Bak
+--'--------------------------------------------------------------------------------------------------------------------
+--TODO добавить выдачу инфопорш,
+_DEBUG_ = true --// file under debugging?
+--sound_spy = rx_utils.prof_spy()
+
+theme = {}
+group = {}
+
+local nstl = 64
+local sm_2d = sound_object.s2d
+local sm_3d = sound_object.s3d
+local sm_looped = sound_object.looped
+local sounds_base = stalker_ids.sound_script + 10000
+function id()
+	sounds_base = sounds_base + 1
+	return sounds_base - 1
+end
+
+local function select_next_sound(id,cnt,shuffle)
+	if shuffle == "rnd" then
+		if cnt == 1 then
+			return 1
+		elseif id ~= nil then
+			if cnt == 2 then
+				return 3-id
+			end
+			local play_id = math.random(1,cnt - 1)
+			if play_id >= id then
+				return play_id + 1
+			end
+			return play_id
+		end
+		return math.random(1,cnt)
+	end
+	if shuffle == "seq" then
+		if id == nil then
+			return 1
+		elseif id == -1 then
+			return -1
+		elseif id < cnt then
+			return id + 1
+		end
+		return -1
+	end
+	if shuffle == "loop" then
+		if id == nil then
+			return 1
+		elseif id < cnt then
+			return id + 1
+		end
+		return 1
+	end
+end
+
+local function give_signal(obj,ts,te)
+	local st = db.storage[obj:id()]
+	--// Сигналим только для секции, которая вызвала звук
+	if not (st and st.active_scheme and st.active_section == ts) then
+		return
+	end
+	local signals = st[st.active_scheme].signals
+	if signals then
+		signals["sound_end"] = true
+		signals["theme_end"] = te
+	end
+end
+
+--'--------------------------------------------------------------------------------------------------------------------
+--' Загрузка звуков
+--'--------------------------------------------------------------------------------------------------------------------
+function load_themes()
+	local tm = debug.timer('load_themes'):start()
+	local ltx_path = {
+		actor_sound		= [[script_sounds\actor.ltx]],
+		object_sound	= [[script_sounds\object.ltx]],
+		npc_sound		= [[script_sounds\npc.ltx]],
+		monster_sound	= [[script_sounds\monster.ltx]],
+	}
+
+	--' начальная установка
+	theme,group = {},{}
+
+	--' загружаем группы
+	local ini = ini_file([[script_sounds\groups.ltx]])
+	local n, res, section, value = ini:line_count("list")
+	for i=0,n-1 do
+		res, section, value  = ini:r_line("list",i,"","")
+		assert(ini:section_exist(section),"Missing group section [%s]",section)
+		group[section] = sound_group(ini,section)
+	end
+	--' загружаем темы
+	for c,p in pairs(ltx_path) do
+		ini = ini_file(p)
+--		log("%s section_count %s",p,ini:section_count())
+		assert(ini:section_exist("list"),"There is no section [list] in %s",p)
+		--' Итерируемся по списку тем.
+		n, res, section, value = ini:line_count("list")
+		for i=0,n-1 do
+			res, section, value  = ini:r_line("list",i,"","")
+			assert(ini:section_exist(section),"Missing theme section [%s] in %s",section,p)
+			assert(theme[section]==nil and group[section]==nil,"Duplicate theme section [%s]",section)
+--			if theme[section] == nil and (value == '' or _G[value] ~= nil) then
+				theme[section] = this[c](ini,section)
+--			end
+		end
+	end
+	logf("sound theme load: %s themes, %s groups, %s ms",table.size(theme),table.size(group),string.format('%.2f',tm:stop().total/1000))
+end
+
+--' Загрузка звуков НПС
+function init_npc_sound(npc)
+	local npc_id,npc_comm = npc:id(),npc:character_community()
+	for _,s in pairs(theme) do
+		if s.class_id == 'npc' then
+			--log("checking %s for %s (%s)", s.section, npc:name(), npc_comm)
+			if not s.avail_communities or s.avail_communities[npc_comm] then
+				if not s.scenario then
+					s:init_npc(npc)
+				end
+			else
+				s.inited[npc_id] = true
+			end
+		end
+	end
+end
+
+function make_theme(cs,ini,name)
+	if not theme[name] then
+		theme[name] = this[cs](ini,name)
+		log("make %s theme %s",cs,name)
+	end
+	return theme[name]
+end
+
+--'--------------------------------------------------------------------------------------------------------------------
+--' Класс "звуковая группа"
+--' Объединяет несколько тем для координации работ
+--'--------------------------------------------------------------------------------------------------------------------
+class "sound_group"
+function sound_group:__init(snd_ini, section)
+	self.section = section
+	self.obj_queue = cfg_get_bool(snd_ini, section, "obj_queue") or nil
+	self.theme_queue = cfg_get_bool(snd_ini, section, "theme_queue") or nil
+	self.priority = cfg_get_number(snd_ini, section, "priority", 1)
+	self.shuffle = cfg_get_string(snd_ini, section, "shuffle", "rnd")
+	local interval = parse_names(cfg_get_string(snd_ini,section,"idle"),true)
+	self.min_idle = interval[1]*1000
+	self.max_idle = interval[2]*1000
+	if interval[3] < 100 then
+		self.rnd = interval[3]/100
+	end
+	self.idle_time = -1
+	self.themes = {}
+end
+
+--// Методы для тем
+function sound_group:add_theme(theme)
+--	log("add_theme[%s] %s",self.section,theme.section)
+	table.insert(self.themes,theme)
+	theme.group_index = #self.themes
+end
+function sound_group:theme_play(theme,obj_id)
+	self.playing = true
+	self.last_obj_id = obj_id
+	self.last_obj_time = nil
+	self.last_theme = theme
+	self.play_id = theme.group_index
+end
+function sound_group:theme_callback(theme)
+	self.playing = false
+	self.idle_time = time_global() + math.random(self.min_idle,self.max_idle)
+	if self.save_me then
+		self.played_id = self.play_id
+	end
+end
+function sound_group:theme_stop(theme)
+	self.playing = false
+end
+function sound_group:is_busy(section,obj_id)
+	if self.playing then
+		return true
+	end
+	if self.idle_time > time_global() then
+		return true
+	end
+	if self.theme_queue and self.last_theme and self.last_theme.section == section and #self.themes > 1 then
+		return true
+	end
+	if self.obj_queue and obj_id == self.last_obj_id then
+		--// Дадим другим право высказаться, но ждем только некоторое время
+		if not self.last_obj_time then
+			self.last_obj_time = time_global() + 5000
+		elseif self.last_obj_time < time_global() then
+			self.last_obj_id = nil
+			self.last_obj_time = nil
+		end
+		return true
+	end
+	-- не повезло сказать
+	if self.rnd and math.random() > self.rnd then
+		self.idle_time = time_global() + math.random(self.min_idle,self.max_idle)
+		return false
+	end
+	return false
+end
+
+--// Методы интерфейса
+function sound_group:play(obj)
+	if #self.themes == 0 then
+		warning("sound_group[%s]: group is empty!",self.section)
+		return false
+	end
+	local play_id = select_next_sound(self.play_id,#self.themes,self.shuffle)
+	if play_id == -1 then
+		log("[%s]:no play_id",self.section)
+		return false
+	end
+	log("sound_group[%s]:play %s cnt %s",self.section,play_id,#self.themes)
+	return self.themes[play_id]:play(obj)
+end
+function sound_group:set_callback(cb,obj_id)
+	self.last_theme:set_callback(cb,obj_id)
+end
+function sound_group:callback(obj)
+	self.last_theme:callback(obj)
+end
+function sound_group:reset(obj)
+	self.last_theme:reset(obj)
+	self.last_theme = nil
+	self.last_obj_id = nil
+	self.play_id = nil
+	self.playing = false
+end
+function sound_group:is_playing(obj)
+	return self.last_theme and self.last_theme:is_playing(obj)
+end
+function sound_group:stop(obj,release)
+	self.last_theme:stop(obj)
+	self.playing = false
+end
+function sound_group:save()
+	if not self.save_me then
+		return
+	end
+	local data = {}
+	data.play_id = self.played_id
+	data.obj_id = self.last_obj_id
+	if self.idle_time then
+		local idle = time_global()-self.idle_time
+		if idle > 1000 then
+			data.idle = idle
+		end
+	end
+	return data
+end
+function sound_group:load(data)
+	if not data then
+		return
+	end
+	self.play_id = data.play_id
+	self.played_id = data.play_id
+	self.last_obj_id = data.obj_id
+	if data.idle then
+		self.idle_time = time_global()+data.idle
+	end
+end
+
+--'--------------------------------------------------------------------------------------------------------------------
+--' Класс "звуковая коллекция сталкера"
+--'--------------------------------------------------------------------------------------------------------------------
+-- ! общий play_id
+-- ! общий pda_snd_obj
+class "npc_sound"
+function npc_sound:__init(snd_ini, section)
+	self.class_id = 'npc'
+	self.section = section
+	self.id = id()
+	self.ini = snd_ini
+	--' Хранит параметры звука для каждого NPC
+	self.npc = {}
+	self.inited = {}
+	--' Параметры вычитывания звука
+	self.internal_type = stalker_ids[cfg_get_string(snd_ini, section, "sound", "_nil")]
+	if not self.internal_type then
+		self.prefix = cfg_get_bool(snd_ini, section, "npc_prefix", true)
+		self.path = cfg_get_string(snd_ini, section, "path")
+		self.shuffle = cfg_get_string(snd_ini, section, "shuffle", "rnd")
+--		self.is_combat_sound = cfg_get_bool(snd_ini, section, "is_combat_sound") or nil
+		self.pda_snd = cfg_get_string(snd_ini, section, "pda_snd")
+		self.pda_snd = self.pda_snd == "true" and true or self.pda_snd
+		self.type = snd_type[cfg_get_string(snd_ini, section, "type", "_nil")]
+		self.save_me = cfg_get_bool(snd_ini, section, "save") or nil
+	end
+	self.scenario = cfg_get_bool(snd_ini, section, "scenario") or nil
+--	log("npc_sound:init %s path %s scen %s pda %s",section,self.path,self.scenario==true,self.pda_snd or false)
+	self.priority = cfg_get_number(snd_ini, section, "priority", 0)
+	-- Время задержки начала отыгрывания звука
+	local delay = parse_names(cfg_get_string(snd_ini,section,"delay_sound"),true)
+	self.min_delay = delay[1] or 0
+	self.max_delay = delay[2] or self.min_delay
+	--' Интервал проигрывания звука
+	local interval = parse_names(cfg_get_string(snd_ini,section,"idle"),true)
+	self.min_idle = interval[1]*1000
+	self.max_idle = interval[2]*1000
+	if interval[3] < 100 then
+		self.rnd = interval[3]/100
+	end
+	if snd_ini:line_exist(section,"avail_communities") then
+		self.avail_communities = table.values(parse_names(cfg_get_string(snd_ini,section,"avail_communities")))
+	end
+	self.group = cfg_get_string(snd_ini, section, "group") or nil
+	if self.group then
+		assert(group[self.group],"there is no group %s for theme %s",self.group,self.section)
+		self.group = group[self.group]
+		self.group:add_theme(self)
+	end
+end
+function npc_sound:init_npc(npc)
+	--log("Init %s snd NPC %s", self.section, npc:name())
+	local npc_id = npc:id()
+	self.inited[npc_id] = true
+	if self.internal_type then
+		self.npc[npc_id] = {}
+		return
+	end
+
+	local f = getFS()
+	local character_prefix
+	if self.prefix == false then
+		character_prefix = npc:sound_prefix()
+		npc:sound_prefix("characters_voice\\")
+	end
+
+	local npc_data = {}
+	-- add_sound (LPCSTR prefix, u32 max_count, ESoundTypes type, u32 priority, u32 mask, u32 internal_type, LPCSTR bone_name)
+	npc_data.max = npc:add_sound(self.path, nstl, self.type or snd_type.monster_talk, 2, 1, self.id, "bip01_head")	-- priority 2 mask 1?
+
+	if npc_data.max < 1 then
+		npc_data = nil
+		if self.scenario then
+			warning("init_npc[%s] no sound [%s%s] for theme '%s'",npc:name(),npc:sound_prefix(),self.path,self.section)
+			print("init_npc[%s] no sound [%s%s] for theme '%s'",npc:name(),npc:sound_prefix(),self.path,self.section)
+		end
+	elseif self.pda_snd then
+		-- загружаем звуки для ПДА
+		npc_data.pda_snd = {}
+		local pda_path = is_string(self.pda_snd) and self.pda_snd
+		local sndp = npc:sound_prefix()..(pda_path or self.path)
+		if pda_path then
+			if f:exist("$game_sounds$",sndp..".ogg") ~= nil then
+				npc_data.pda_snd[1] = sndp
+			else
+				warning("init_npc[%s] no pda sound [%s] for theme '%s'",npc:name(),sndp,self.section)
+				print("init_npc[%s] no pda sound [%s] for theme '%s'",npc:name(),sndp,self.section)
+			end
+		elseif f:exist("$game_sounds$",sndp..".ogg") ~= nil then
+			if f:exist("$game_sounds$",sndp.."_pda.ogg") ~= nil then
+				npc_data.pda_snd[1] = sndp.."_pda"
+			end
+		else
+			local num = 1
+			while f:exist("$game_sounds$",sndp..num..".ogg") do
+				if f:exist("$game_sounds$",sndp..num.."_pda.ogg") ~= nil then
+					npc_data.pda_snd[num] = sndp..num.."_pda"
+				end
+				num = num + 1
+			end
+		end
+	end
+
+	self.npc[npc:id()] = npc_data
+
+	if character_prefix then
+		npc:sound_prefix(character_prefix)
+	end
+end
+function npc_sound:play(npc)
+	local npc_id = npc:id()
+
+	-- НПС еще не инициализирован
+	if not self.inited[npc_id] then
+		self:init_npc(npc)
+	end
+
+	if npc:active_sound_count() > 0 then
+		if self.scenario then
+			stop_play_sound(npc)
+		else
+			return false
+		end
+	end
+
+	-- У персонажа нет озвучки
+	local npc_data = self.npc[npc_id]
+	if not npc_data then
+--		log("[%s]not npc_data theme[%s]", npc:name(), self.section)
+		return false
+	end
+
+	-- группа занята
+	if self.group and self.group:is_busy(self.section,npc_id) then
+--		log("[%s] theme[%s] group %s is busy", npc:name(), self.section,self.group.section)
+		return false
+	end
+
+	-- время ещё не пришло
+	if npc_data.idle_time and npc_data.idle_time > time_global() then
+--		log("[%s]not idle_time theme[%s]", npc:name(), self.section)
+		return false
+	end
+
+	-- не повезло сказать
+	if self.rnd and math.random() > self.rnd then
+		npc_data.idle_time = time_global() + math.random(self.min_idle,self.max_idle)
+		return false
+	end
+	npc_data.idle_time = nil
+
+	-- нужно сразу определить delay для поддержки колбека и звука ПДА
+	local delay = math.random(self.min_delay,self.max_delay)
+
+	if self.internal_type then
+		--' если стандартный звук - команда играть
+		npc:play_sound(self.internal_type, delay, delay)
+	else
+		--' Выбор звука, который играть.
+		self.play_id = select_next_sound(self.play_id,npc_data.max,self.shuffle)
+--		log("npc_sound:play[%s:%s] %s play_id %s",npc:character_name(),npc_id,self.section,self.play_id)
+
+		-- последовательность уже отыграна
+		if self.play_id == -1 then
+			npc_data.idle_time = math.huge
+	--		log("[%s]self.play_id == -1 theme[%s]", npc:name(), self.section)
+			return false
+		end
+
+		-- play_sound (u32 internal_type, u32 max_start_time, u32 min_start_time, u32 max_stop_time, u32 min_stop_time, u32 id)
+		npc:play_sound(self.id, delay, delay, 1, 0, self.play_id-1)
+
+		-- проверка на существование звука дублирующего основной по ПДА. Если он есть то играть и его.
+		if self.pda_snd then
+			local snd = npc_data.pda_snd[self.play_id]
+			log("#play pda_snd %s",snd)
+			if snd and npc:position():distance_to_sqr(actor:position()) > 100 then
+				if self.pda_snd_obj ~= nil and self.pda_snd_obj:playing() then
+					self.pda_snd_obj:stop()
+				end
+				self.pda_snd_obj = sound_object(snd)
+				self.pda_snd_obj:play(actor, (delay+25)/1000, sm_2d)
+				self.pda_snd_obj.volume = 0.8
+			end
+		end
+	end
+
+	npc_data.start_time = delay > 0 and time_global()+delay or nil
+	if self.group then
+		self.group:theme_play(self,npc_id)
+	end
+	return true
+end
+function npc_sound:set_callback(cb,npc_id)
+	self.npc[npc_id].cb = cb == true and db.storage[npc_id].active_section or cb
+end
+function npc_sound:callback(npc)
+	local npc_id = npc:id()
+--	if self.scenario then
+--		log("*npc_sound:callback[%s:%s] %s",npc:name(),npc:id(),self.section)
+--	end
+
+	self.pda_snd_obj = nil	-- !!!
+
+	if self.group then
+		self.group:theme_callback(self)
+	end
+
+	local npc_data = self.npc[npc_id]
+	npc_data.idle_time = time_global() + math.random(self.min_idle,self.max_idle)
+	npc_data.start_time = nil
+	if self.save_me then
+		self.played_id = select_next_sound(self.played_id,npc_data.max,self.shuffle)
+	end
+
+	if not npc_data.cb then
+		return
+	end
+
+	-- Колбек функция
+	if is_table(npc_data.cb) then
+		npc_data.cb[1](npc_data.cb[2],self)
+		npc_data.cb = nil
+		return
+	end
+
+	-- сигнал для схемы
+	--// Rulix: возможно стоит сделать отдельный флаг для сигнала?
+	if self.scenario then
+		give_signal(npc,npc_data.cb,self.play_id == npc_data.max and self.shuffle ~= "rnd")
+	end
+end
+function npc_sound:reset(npc)
+	self:stop(npc)
+	self.npc[npc:id()].idle_time = nil
+	self.play_id = nil
+	self.played_id = nil
+end
+function npc_sound:is_playing(npc)
+	local npc_data = self.npc[npc:id()]
+	-- НПС не инициализирован, или озвучка для него отсутствует
+	if not npc_data then
+		return false
+	end
+	-- Звук ещё не начался
+	if npc_data.start_time and npc_data.start_time > time_global() then
+		return true
+	end
+	--  Проверка играется ли сейчас звук у нпс
+	return npc:active_sound_count() ~= 0 or (self.pda_snd_obj and self.pda_snd_obj:playing())
+end
+function npc_sound:stop(npc,release)
+	if npc and not release then
+		stop_play_sound(npc)
+	end
+	if self.pda_snd_obj then
+		self.pda_snd_obj:stop()
+		self.pda_snd_obj = nil
+	end
+	if release and self.group then
+		self.group:theme_stop(self)
+	end
+end
+function npc_sound:save()
+	if self.save_me and self.played_id then
+		return self.played_id
+	end
+end
+function npc_sound:load(data)
+	self.play_id = data
+	self.played_id = data
+end
+
+--'--------------------------------------------------------------------------------------------------------------------
+--' Класс "звуковая коллекция монстра" // заготовка
+--'--------------------------------------------------------------------------------------------------------------------
+class "monster_sound" (npc_sound)
+function monster_sound:__init(snd_ini, section) super (snd_ini, section)
+	self.class_id = 'monster'
+--	log("monster_sound init[%s]: prefix %s",section,self.prefix)
+end
+function monster_sound:init_npc(npc)
+	local npc_id = npc:id()
+	self.inited[npc_id] = true
+	if self.internal_type then
+		self.npc[npc_id] = {}
+		return
+	end
+
+	local npc_data = {}
+	-- add_sound (LPCSTR prefix, u32 max_count, ESoundTypes type, u32 priority, u32 mask, u32 internal_type, LPCSTR bone_name)
+	npc_data.max = npc:add_sound(self.path, nstl, self.type or snd_type.monster_talk, 2, -1, self.id, "bip01_head")
+
+	if npc_data.max < 1 then
+		npc_data = nil
+		if self.scenario then
+			warning("init_npc[%s] no sound [%s%s] for theme '%s'",npc:name(),npc:sound_prefix(),self.path,self.section)
+			print("init_npc[%s] no sound [%s%s] for theme '%s'",npc:name(),npc:sound_prefix(),self.path,self.section)
+		end
+	end
+
+	self.npc[npc:id()] = npc_data
+end
+
+--'--------------------------------------------------------------------------------------------------------------------
+--' Класс "звуковая коллекция игрока"
+--'--------------------------------------------------------------------------------------------------------------------
+class "actor_sound"
+function actor_sound:__init(snd_ini, section)
+	self.class_id = 'actor'
+	self.section = section
+--	self.ini = snd_ini
+
+	--' Параметры вычитывания звука
+	self.path = cfg_get_string(snd_ini, section, "path")
+	self.shuffle = cfg_get_string(snd_ini, section, "shuffle", "rnd")
+	self.save_me = cfg_get_bool(snd_ini, section, "save") or nil
+	local ptype = cfg_get_string(snd_ini, section, "play_type")
+	self.s3d = ptype and ptype:find('3d') and true
+	self.looped = ptype and ptype:find('looped') and true
+
+	-- Время задержки начала отыгрывания звука
+	local delay = parse_names(cfg_get_string(snd_ini,section,"delay_sound"),true)
+	self.min_delay = delay[1] or 0
+	self.max_delay = delay[2] or self.min_delay
+	--' Интервал проигрывания звука
+	local interval = parse_names(cfg_get_string(snd_ini,section,"idle","0,0,100"),true)
+	self.min_idle = interval[1]*1000
+	self.max_idle = interval[2]*1000
+	if interval[3] < 100 then
+		self.rnd = interval[3]/100
+	end
+	self.priority = 1
+	self.sound = {}
+
+	local f = getFS()
+	if f:exist("$game_sounds$",self.path..".ogg") ~= nil then
+		self.sound[1] = self.path
+	else
+		local num = 1
+		while f:exist("$game_sounds$",self.path..num..".ogg") do
+			self.sound[num] = self.path..num
+			num = num + 1
+		end
+	end
+	if #self.sound == 0 then
+		warning("[%s] There are no sound collection with path: %s",self.section,self.path)
+	end
+
+	self.group = cfg_get_string(snd_ini, section, "group") or nil
+	if self.group then
+		assert(group[self.group],"there is no group %s for theme %s",self.group,self.section)
+		self.group = group[self.group]
+		self.group:add_theme(self)
+	end
+
+	-- Register in info callback
+	local info = cfg_get_string(snd_ini, section, "play_on_info")
+	if info then
+		local cond = cfg_get_string(snd_ini, section, "condition")
+		cond = cond and parse_condlist(cond) or true
+		local cb_func = cfg_get_string(snd_ini, section, "callback_func")
+		if cb_func then
+			local a,b,c = parse_func(cb_func)
+			local f = _G[a][b]
+			assert(f)
+			cb_func = {f,c}
+		end
+		local t = {theme = self.section, cond = cond,	cb = cb_func}
+		local infos = parse_names(info)
+		assert(is_array(infos)) --// debug
+		for i=1,#infos do
+--			log("loaded info sound [%s] (%s)",self.section,info)
+			m_sound.info_sounds[infos[i]] = t
+		end
+	end
+end
+function actor_sound:play(npc,pos)
+	local npc_id = npc:id()
+
+	if self.idle_time and self.idle_time > time_global() then
+--		log("[%s]not idle_time theme[%s]", npc:name(), self.section)
+		return false
+	end
+
+	-- группа занята
+	if self.group and self.group:is_busy(self.section,npc_id) then
+--		log("[%s] theme[%s] group %s is busy", npc:name(), self.section,self.group.section)
+		return false
+	end
+
+	--' Выбор звука, который играть.
+	self.play_id = select_next_sound(self.play_id,#self.sound,self.shuffle)
+	if self.play_id == -1 then
+		--' Пропускаем.
+		self.idle_time = math.huge
+		return false
+	end
+
+	local delay = math.random(self.min_delay,self.max_delay)*0.001
+	self.snd_obj = sound_object(self.sound[self.play_id])
+	self.snd_obj:play_at_pos(actor, is_vector(pos) and pos or vector():set(0,0,0), delay, (self.s3d and sm_3d or sm_2d) + (self.looped and sm_looped or 0))
+	self.snd_obj.volume = 0.8
+
+	self.start_time = delay > 0 and time_global()+delay or nil
+	if self.group then
+		self.group:theme_play(self,npc_id)
+	end
+	return true
+end
+function actor_sound:set_callback(cb,obj_id)
+	self.cb = cb == true and db.storage[obj_id].active_section or cb
+end
+function actor_sound:callback(npc)
+	self.idle_time = time_global() + math.random(self.min_idle,self.max_idle)
+	self.snd_obj = nil
+	self.start_time = nil
+	log("actor_sound[%s]:callback for [%s]",self.section,npc)
+
+	if self.save_me then
+		self.played_id = self.play_id
+	end
+
+	if self.group then
+		self.group:theme_callback(self)
+	end
+
+	if not self.cb then
+		return
+	end
+
+	log("actor_sound:callback cb %s",self.cb)
+	-- Колбек функция
+	if is_table(self.cb) then
+		if is_table(self.cb[2]) then	--// нехорошо так
+			self.cb[1](unpack(self.cb[2]))
+		else
+			self.cb[1](self.cb[2],self)
+		end
+		self.cb = nil
+		return
+	end
+
+	if npc then
+		give_signal(npc,self.cb,self.play_id == #self.sound and self.shuffle ~= "rnd")
+	end
+end
+function actor_sound:reset(npc)
+	self:stop(npc)
+	self.idle_time = nil
+	self.play_id = nil
+	self.played_id = nil
+end
+function actor_sound:is_playing()
+	-- Звук ещё не начался
+	if self.start_time and self.start_time > time_global() then
+		return true
+	end
+	return self.snd_obj and self.snd_obj:playing()
+end
+function actor_sound:stop(npc,release)
+	if self.snd_obj ~= nil then
+		self.snd_obj:stop()
+	end
+	if self.pda_snd_obj then
+		self.pda_snd_obj:stop()
+		self.pda_snd_obj = nil
+	end
+	if release and self.group then
+		self.group:theme_stop(self)
+	end
+end
+function actor_sound:save()
+	if self.save_me and self.played_id then
+		return self.played_id
+	end
+end
+function actor_sound:load(data)
+	self.play_id = data
+	self.played_id = data
+end
+
+
+--'--------------------------------------------------------------------------------------------------------------------
+--' Класс "звуковая коллекция объекта"
+--'--------------------------------------------------------------------------------------------------------------------
+class "object_sound" (actor_sound)
+function object_sound:__init(snd_ini, section) super (snd_ini, section)
+	self.class_id = 'object'
+	self.from_item = cfg_get_string(snd_ini, section, "inventory_item")
+	self.npc = {}
+end
+function object_sound:play(npc)
+	local npc_id = npc:id()
+	local npc_data = self.npc[npc_id]
+	if not npc_data then
+		npc_data = {}
+		self.npc[npc_id] = npc_data
+	end
+
+	-- группа занята
+	if self.group and self.group:is_busy(self.section,npc_id) then
+		return false
+	end
+
+	-- время ещё не пришло
+	if npc_data.idle_time and npc_data.idle_time > time_global() then
+		return false
+	end
+
+	-- не повезло сказать
+	if self.rnd and math.random() > self.rnd then
+		npc_data.idle_time = time_global() + math.random(self.min_idle,self.max_idle)
+		return false
+	end
+	npc_data.idle_time = nil
+
+	--' Выбор звука, который играть.
+	self.play_id = select_next_sound(self.play_id,#self.sound,self.shuffle)
+	log("object_sound:play[%s:%s] %s play_id %s",npc:name(),npc_id,self.section,self.play_id)
+	if self.play_id == -1 then
+		--' Пропускаем.
+		npc_data.idle_time = math.huge
+		return false
+	end
+
+	local delay = math.random(self.min_delay,self.max_delay)*0.001
+	local item = self.from_item and (self.from_item == 'active' and npc:active_item() or npc:object(self.from_item))
+	npc_data.snd_obj = sound_object(self.sound[self.play_id])
+	npc_data.snd_obj:play_at_pos(npc, (item or npc):center(), delay, sm_3d + (self.looped and sm_looped or 0))
+
+	npc_data.start_time = delay > 0 and time_global()+delay or nil
+	if self.group then
+		self.group:theme_play(self,npc_id)
+	end
+	return true
+end
+function object_sound:set_callback(cb,obj_id)
+	self.npc[obj_id].cb = cb == true and db.storage[obj_id].active_section or cb
+end
+function object_sound:callback(npc)
+	local npc_id = npc:id()
+
+	if self.group then
+		self.group:theme_callback(self)
+	end
+
+	local npc_data = self.npc[npc_id]
+	npc_data.idle_time = time_global() + math.random(self.min_idle,self.max_idle)
+	npc_data.start_time = nil
+	if self.save_me then
+		self.played_id = select_next_sound(self.played_id,#self.sound,self.shuffle)
+	end
+
+	if not npc_data.cb then
+		return
+	end
+
+	-- Колбек функция
+	if is_table(npc_data.cb) then
+		npc_data.cb[1](npc_data.cb[2],self)
+		npc_data.cb = nil
+		return
+	end
+
+	give_signal(npc,npc_data.cb,self.play_id == npc_data.max and self.shuffle ~= "rnd")
+end
+function object_sound:reset(npc)
+	self:stop(npc)
+	self.npc[npc:id()].idle_time = nil
+	self.play_id = nil
+	self.played_id = nil
+end
+function object_sound:is_playing(npc)
+	local npc_data = self.npc[npc:id()]
+	if not npc_data then
+		return false
+	end
+	-- Звук ещё не начался
+	if npc_data.start_time and npc_data.start_time > time_global() then
+		return true
+	end
+	return npc_data.snd_obj and npc_data.snd_obj:playing() and self:update_position(npc_data.snd_obj,npc)
+end
+function object_sound:update_position(snd,npc)
+	local item = self.from_item and npc:object(self.from_item)
+	snd:set_position((item or npc):center())
+	return true
+end
+function object_sound:stop(npc,release)
+	local npc_data = self.npc[npc:id()]
+	if not npc_data then
+		return
+	end
+	if npc_data.snd_obj then
+		npc_data.snd_obj:stop()
+		npc_data.snd_obj = nil
+	end
+	if release and self.group then
+		self.group:theme_stop(self)
+	end
+end
+function object_sound:save()
+	if self.save_me and self.played_id then
+		return self.played_id
+	end
+end
+function object_sound:load(data)
+	self.play_id = data
+	self.played_id = data
+end
+
+--//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+--// Тут старый функционал для актора, вертолета, физ объектов и прочего
+--//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+ph_snd_themes = {}
+ph_snd_themes["music"] = {  "characters_voice\\scenario\\megafon\\megafon_music_1",
+                            "characters_voice\\scenario\\megafon\\megafon_music_2",
+                            "characters_voice\\scenario\\megafon\\megafon_music_3"
+                            }
+ph_snd_themes["humor"] = {  "characters_voice\\scenario\\escape\\comandir_megafon_1",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_2",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_3",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_4",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_5",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_6",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_7",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_8",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_9",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_10",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_11",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_12",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_13",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_14",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_15",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_16",
+                            "characters_voice\\scenario\\escape\\comandir_megafon_17"
+                            }
+ph_snd_themes["epic"] = { "characters_voice\\scenario\\escape\\megafon_1",
+                            "characters_voice\\scenario\\escape\\megafon_2",
+                            "characters_voice\\scenario\\escape\\megafon_3",
+                            "characters_voice\\scenario\\escape\\megafon_4"
+                            }
+ph_snd_themes["alarm1"] = { "characters_voice\\scenario\\megafon\\megafon_alarm_1",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_10",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_11",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_12",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_13"
+                            }
+ph_snd_themes["alarm2"] = { "characters_voice\\scenario\\megafon\\megafon_alarm_2",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_3",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_4",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_5",
+                            "characters_voice\\scenario\\megafon\\megafon_alarm_6"
+                          }
+ph_snd_themes["siren"] =  { "ambient\\siren2" }
+ph_snd_themes["bomb"] = {"detectors\\bomb_timer"}
+ph_snd_themes["detector"] = {"detectors\\da-2_beep1"}
+
+
+ph_snd_themes["radio_music"] = {"characters_voice\\scenario\\bar\\radio_music\\radio_music_1"}
+
+ph_snd_themes["dolg_speech"]        = {[[characters_voice\scenario\bar\barman_megafon\megaphone_barman_1]],
+                                       [[characters_voice\scenario\bar\barman_megafon\megaphone_barman_2]],
+                                       [[characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_1]],
+                                       [[characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_2]],
+                                       [[characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_3]],
+                                       [[characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_4]],
+                                       [[characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_5]],
+                                       [[characters_voice\scenario\megafon\megafon_music_1]],
+                                       [[characters_voice\scenario\megafon\megafon_music_2]],
+                                       [[characters_voice\scenario\megafon\megafon_music_3]]}
+ph_snd_themes["dolg_alarm"]            = {[[characters_voice\scenario\bar\dolg_megafon\megaphone_duty_alarm]]}
+ph_snd_themes["dolg_megafon_1_hit"] = {[[characters_voice\scenario\bar\dolg_megafon\duty_gunfire_mega_1]]}
+ph_snd_themes["dolg_megafon_2_hit"] = {[[characters_voice\scenario\bar\dolg_megafon\duty_gunfire_mega_2]]}
+ph_snd_themes["dolg_megafon_kill"]    = {[[characters_voice\scenario\bar\dolg_megafon\duty_gunfire_mega_3]]}
+ph_snd_themes["arena_introduce_pseudodog"]    = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_pseudodog]]}
+ph_snd_themes["arena_introduce_snork"]        = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_snork]]}
+ph_snd_themes["arena_introduce_bloodsucker"]= {[[characters_voice\scenario\bar\arena_megafon\mega_arena_bloodsucker]]}
+ph_snd_themes["arena_introduce_burer"]        = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_burer]]}
+ph_snd_themes["arena_introduce_savage"]        = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_zver]]}
+ph_snd_themes["arena_actor_afraid"]            = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_coward]]}
+ph_snd_themes["arena_fight_begin"]            = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_start]]}
+ph_snd_themes["arena_fight_victory"]        = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_win_1]]}
+ph_snd_themes["arena_fight_victory_notime"]    = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_win_2]]}
+ph_snd_themes["arena_fight_lose"]            = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_out_of_time_win]]}
+ph_snd_themes["arena_fight_death"]            = {[[characters_voice\scenario\bar\arena_megafon\mega_arena_dead]]}
+
+ph_snd_themes["bar_start_megafon"]        = {[[characters_voice\scenario\bar\barman_megafon\megaphone_barman_1]],
+                                       [[characters_voice\scenario\bar\barman_megafon\megaphone_barman_2]],
+                                       [[characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_1]],
+                                       [[characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_2]]}
+
+ph_snd_themes["mon_monolith_damaged"]            = {[[characters_voice\scenario\sarcofag\monolith_damaged]]}
+ph_snd_themes["mon_monolith_heavy_damaged"]        = {[[characters_voice\scenario\sarcofag\monolith_heavy_damaged]]}
+ph_snd_themes["mon_monolith_alarm"]                = {[[characters_voice\scenario\sarcofag\monolith_alarm]]}
+ph_snd_themes["mon_monolith_recharged"]            = {[[characters_voice\scenario\sarcofag\monolith_recharged]]}
+
+ph_snd_themes["sar_monolith_call"]            = {[[characters_voice\scenario\sarcofag\monolith_call_1]],
+                                                [[characters_voice\scenario\sarcofag\monolith_call_2]],
+                                                [[characters_voice\scenario\sarcofag\monolith_call_3]],
+                                                [[characters_voice\scenario\sarcofag\monolith_call_4]],
+                                                [[characters_voice\scenario\sarcofag\monolith_call_5]],
+                                                [[characters_voice\scenario\sarcofag\monolith_call_6]],
+                                                [[characters_voice\scenario\sarcofag\monolith_call_7]]}
+
+ph_snd_themes["gar_seryi_shooting"]    = {[[characters_voice\scenario\garbage\distance_shooting]]}
+ph_snd_themes["gar_seryi_shooting_2"]    = {[[characters_voice\scenario\bandits\bandit_replic_2]]}
+ph_snd_themes["aes_battle1"] =        {"ambient\\battle_1"}
+ph_snd_themes["aes_battle2"] =        {"ambient\\battle_2"}
+ph_snd_themes["gar_bandits_seryi"] =   {[[characters_voice\scenario\garbage\grey_bandit_1]],
+                                        [[characters_voice\scenario\garbage\grey_bandit_2]],
+                                        [[characters_voice\scenario\garbage\grey_bandit_3]],
+                                        [[characters_voice\scenario\garbage\grey_bandit_4]],
+                                        [[characters_voice\scenario\garbage\grey_bandit_5]]}
+ph_snd_themes["radar_drone"] = {"ambient\\radar_1"}
+ph_snd_themes["radar_thunder"] = {"ambient\\radar_2"}
+ph_snd_themes["radar_sparks"] = {"ambient\\radarsparks_1"}
+ph_snd_themes["aes_teleport"] = {"anomaly\\teleport_incoming"}
+
+ph_snd_themes["yan_antenna"] = {{"characters_voice\\scenario\\yantar\\psy_voices_1"}} --' Стерео
+
+ph_snd_themes["radar_meh_on"] = {"ambient\\cooling_run"}
+ph_snd_themes["radar_meh_off"] = {"ambient\\cooling_stop"}
+ph_snd_themes["system_message_1"]    = {[[characters_voice\scenario\yantar\system_message_1]]}
+ph_snd_themes["system_message_2"]    = {[[characters_voice\scenario\yantar\system_message_2]]}
+ph_snd_themes["system_message_3"]    = {[[characters_voice\scenario\yantar\system_message_3]]}
+ph_snd_themes["system_message_4"]    = {[[characters_voice\scenario\yantar\system_message_4]]}
+ph_snd_themes["system_message_5"]    = {[[characters_voice\scenario\yantar\system_message_5]]}
+ph_snd_themes["agro_test"]    = {[[weapons\grenade1]]}
+ph_snd_themes["bar_arena_public"]    = {"characters_voice\\scenario\\bar\\arena_public\\new_arena_public_1",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_1",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_2",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_3",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_4",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_5",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_6",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_7",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_8",
+                            "characters_voice\\scenario\\bar\\arena_public\\new_arena_public_9"
+                            }
+ph_snd_themes["bar_arena_public_death"]    = {"ambient\\arena\\crowd_wave_1",
+                            "ambient\\arena\\crowd_wave_2",
+                            "ambient\\arena\\crowd_wave_3"
+                            }
+ph_snd_themes["bar_arena_fight_1"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_1_ready"}
+ph_snd_themes["bar_arena_fight_1_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_1_finish"}
+ph_snd_themes["bar_arena_fight_2"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_2_ready"}
+ph_snd_themes["bar_arena_fight_2_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_2_finish"}
+ph_snd_themes["bar_arena_fight_3"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_3_ready"}
+ph_snd_themes["bar_arena_fight_3_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_3_finish"}
+ph_snd_themes["bar_arena_fight_4"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_4_ready"}
+ph_snd_themes["bar_arena_fight_4_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_4_finish"}
+ph_snd_themes["bar_arena_fight_5"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_5_ready"}
+ph_snd_themes["bar_arena_fight_5_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_5_finish"}
+ph_snd_themes["bar_arena_fight_6"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_6_ready"}
+ph_snd_themes["bar_arena_fight_6_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_6_finish"}
+ph_snd_themes["bar_arena_fight_7"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_7_ready"}
+ph_snd_themes["bar_arena_fight_7_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_7_finish"}
+ph_snd_themes["bar_arena_fight_8"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_8_ready"}
+ph_snd_themes["bar_arena_fight_8_end"]    = {"characters_voice\\scenario\\bar\\arena_sound\\bar_fight_8_finish"}
+
+ph_snd_themes["x18_sound_1"] = {"ambient\\x18\\x18_hit_8"}
+ph_snd_themes["x18_sound_2"] = {"ambient\\x18\\x18_metal_2"}
+ph_snd_themes["x18_sound_3"] = {"ambient\\x18\\x18_metal_3"}
+ph_snd_themes["x18_sound_4"] = {"ambient\\x18\\x18_metal_4"}
+ph_snd_themes["x18_sound_5"] = {"ambient\\x18\\x18_metal_5"}
+ph_snd_themes["x18_sound_6"] = {"ambient\\x18\\x18_creak_2"}
+ph_snd_themes["x18_sound_7"] = {"ambient\\x18\\x18_creak_1"}
+ph_snd_themes["x18_sound_8"] = {"ambient\\x18\\x18_hit_7"}
+ph_snd_themes["x18_sound_9"] = {"ambient\\x18\\x18_footsteps_2"}
+ph_snd_themes["x18_sound_10"] = {"ambient\\x18\\x18_move_4"}
+ph_snd_themes["x18_sound_11"] = {"ambient\\x18\\x18_footsteps"}
+ph_snd_themes["x18_sound_12"] = {"ambient\\x18\\x18_move_3"}
+
+ph_snd_themes["x16_engine1_run"] = {"ambient\\x16\\x16_engine1_run"}
+ph_snd_themes["x16_engine1_stop"] = {"ambient\\x16\\x16_engine1_stop"}
+
+ph_snd_themes["x16_engine2_run"] = {"ambient\\x16\\x16_engine2_run"}
+ph_snd_themes["x16_engine2_stop"] = {"ambient\\x16\\x16_engine2_stop"}
+
+ph_snd_themes["x16_hum_2"] = {"ambient\\x16\\x16_hum_2"}
+ph_snd_themes["x16_switch_1"] = {"ambient\\x16\\switch_1"}
+ph_snd_themes["x16_switch_2"] = {"ambient\\x16\\switch_2"}
+
+ph_snd_themes["x18_firedoor"] = {"anomaly\\fireball_idle"}
+ph_snd_themes["mon_poltergeist"] = {"anomaly\\anomaly_gravy_hit1"}
+
+ph_snd_themes["psy_voices"] = {{[[characters_voice\scenario\yantar\psy_voices_1]]}} --' Стерео
+
+ph_snd_themes["heli_explosion"] = {[[weapons\heli_explosion]]}
+
+ph_snd_themes["trader_door_open_start"]        = {[[device\door_start]]}
+ph_snd_themes["trader_door_close_start"]    = {[[device\door_closing]]}
+ph_snd_themes["trader_door_close_stop"]        = {[[device\door_stop]]}
+ph_snd_themes["trader_door_locked"]            = {[[device\door_locked]]}
+ph_snd_themes["trader_door_unlock"]            = {[[device\door_servomotor]]}
+ph_snd_themes["wood_small_open"]            = {[[device\wood_small_open]]}
+ph_snd_themes["wood_small_close_start"]        = {[[device\wood_small_close_start]]}
+ph_snd_themes["wood_small_close_stop"]        = {[[device\wood_small_close_stop]]}
+ph_snd_themes["wood_large_open"]            = {[[device\wood_large_open]]}
+ph_snd_themes["wood_large_close_start"]        = {[[device\wood_large_close_start]]}
+ph_snd_themes["wood_large_close_stop"]        = {[[device\wood_large_close_stop]]}
+ph_snd_themes["metal_small_open"]            = {[[device\metal_small_open]]}
+ph_snd_themes["metal_small_close_start"]    = {[[device\metal_small_close_start]]}
+ph_snd_themes["metal_small_close_stop"]        = {[[device\metal_small_close_stop]]}
+
+
+--' В темах для игрока интервал задается в миллисекундах!!!
+actor_theme = {
+    level_border_detector = {min_snd = 10, max_snd = 100,
+                             sounds = {m_sound.get_safe_sound_object([[detectors\geiger_1]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_1]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_1]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_1]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_2]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_2]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_4]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_5]]),
+                                       m_sound.get_safe_sound_object([[detectors\geiger_6]]) }}
+}

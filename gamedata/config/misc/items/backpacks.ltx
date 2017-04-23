@@ -1,0 +1,113 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;    BACKPACKS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;--//------------------------
+; ARMY BACKPACK
+;--//------------------------
+[backpack_base]:inventory_item_object
+class                   = II_BACKP
+visual                  = equipments\item_rukzak.ogf
+
+inv_name                = BackpackBase
+inv_name_short          = BackpackBaseShort
+description             = BackpackBaseDescr
+
+inv_weight              = 1.0
+inv_volume              = 1.0
+; Karlan: объем (вместимость) рюкзака
+volume                  = 30
+; Karlan: увеличение износа рюкзака когда мы пихаем в него сверх нормы, тут за тыс€чу подн€тий рветс€
+condition_take_dec      = 0.001 ; прочность
+; Karlan: порог изношенности, при котором рветс€ рюкзак
+condition_bag_broken    = 0.9;0.001 ; надежность
+; Karlan: удобность рюкзака (0 .. 1) def = 1.0f, но не рекомендуетс€ ставить выше 0.98f (при 1.0f = 0.975f)
+convenience             = 1
+physic_enable = true
+
+inv_grid_width          = 2
+inv_grid_height         = 2
+inv_grid_x              = 10
+inv_grid_y              = 29
+cost                    = 300
+
+immunities_sect         = backpack_base_immunities
+
+slot                    = 16
+script_binding          = m_inventory.bind_backpack
+
+drop_backpack_snd       = interface\inv_drop_backpack
+
+[backpack_base_immunities]
+burn_immunity           = 0.005
+strike_immunity         = 0.005
+shock_immunity          = 0.005
+wound_immunity          = 0.05
+wound_2_immunity        = 0.05
+radiation_immunity      = 0.0
+telepatic_immunity      = 0.0
+chemical_burn_immunity  = 0.01
+explosion_immunity      = 0.0
+fire_wound_immunity     = 0.0
+
+[backpack_haversack]:backpack_base
+$spawn                  = "inventory_item\backpack_haversack"
+inv_name                = army_haversack
+inv_name_short          = army_haversack
+description             = army_haversack_descr
+cost                    = 500
+
+[backpack_eagle]:backpack_base
+$spawn                  = "inventory_item\backpack_eagle"
+inv_name                = army_eagle
+inv_name_short          = army_eagle
+description             = army_eagle_descr
+volume                  = 39
+; Karlan: вот так можно включить систему быстрого сброса
+fast_drop               = true
+; Karlan: вот так мы повысим удобность, и нас будет меньше колбасить на пике набитости рюкзака
+convenience             = 0.7
+condition_bag_broken    = 0.7
+inv_grid_height         = 3
+inv_grid_x              = 12
+cost                    = 6500
+immunities_sect         = backpack_eagle_immunities
+
+[backpack_eagle_immunities]:backpack_base_immunities
+burn_immunity           = 0.0
+strike_immunity         = 0.0
+shock_immunity          = 0.0
+wound_immunity          = 0.025
+wound_2_immunity        = 0.025
+
+[backpack_ataka]:backpack_base
+$spawn                  = "inventory_item\backpack_ataka"
+inv_name                = ataka_second
+inv_name_short          = ataka_second
+description             = ataka_second_descr
+inv_weight              = 2.5
+volume                  = 60
+condition_bag_broken    = 0.8
+inv_grid_height         = 3
+inv_grid_y              = 31
+cost                    = 5000
+
+[backpack_cyclop]:backpack_base
+$spawn                  = "inventory_item\backpack_cyclop"
+inv_name                = backpack_cyclop
+inv_name_short          = backpack_cyclop
+description             = backpack_cyclop_descr
+inv_weight              = 2.9
+inv_volume              = 2.0
+volume                  = 100
+inv_grid_height         = 3
+inv_grid_x              = 12
+inv_grid_y              = 32
+cost                    = 7000
+immunities_sect         = backpack_cyclop_immunities
+
+[backpack_cyclop_immunities]:backpack_base_immunities
+burn_immunity           = 0.01
+strike_immunity         = 0.01
+shock_immunity          = 0.01
+wound_immunity          = 0.1
+wound_2_immunity        = 0.1

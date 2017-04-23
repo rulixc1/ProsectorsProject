@@ -1,0 +1,103 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ph_force.script
+ Description: apply force to object
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "action_force"
+function action_force:__init(obj, storage)
+    self.object     = obj
+    self.st         = storage
+    self.time       = 0
+    self.process    = false
+    self.coeff      = 0
+    self.dir        = vector():set(math.random(), 0, math.random()):normalize()
+    self.element    = nil
+    self.pause      = false
+end
+function action_force:reset_scheme()
+    if self.st.cyclic then
+        self.time = time_global()
+        self.dir = vector():set(math.random(), 0, math.random()):normalize()
+        self.coeff = self.st.force/self.st.delay 
+        self.element = self.object:get_physics_shell():get_element_by_bone_name(self.st.element)
+        self.pause = false
+    else
+        self.time = time_global()+self.st.delay
+        self.process = false
+    end
+end
+function action_force:update(delta)   
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then return end
+    if self.st.cyclic then
+        local time = time_global()
+        if self.pause then
+            if time - self.time < self.st.delay * 0.5 then
+                return
+            end
+            self.time = time
+            self.pause = false
+        end
+        if time - self.time >= self.st.delay then
+           self.dir.x = -self.dir.x
+           self.dir.z = -self.dir.z
+           self.dir = vector.rotate_y(vector():set(-self.dir.x, 0, -self.dir.z), self.st.angle)
+           self.time = time
+           self.pause = true
+           return
+        end
+        local force = (time - self.time)*self.coeff
+        -- // Karlan->Karlan: заменить после фикса алгоритма
+        -- self.dir = self.dir:mul(force)
+        -- self.element:apply_force(self.dir.x, self.dir.y, self.dir.z)
+        self.object:set_const_force(self.dir, force, 2)
+    else
+        if self.process == true then return end
+        if time_global()-self.time < 0 then return end
+        local dir = self.st.point:sub(self.object:position())
+        dir:normalize()
+        self.object:set_const_force(dir, self.st.force, self.st.time)
+        self.process = true
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(obj, ini, scheme, section, storage)
+    xr_logic.subscribe_action_for_events(obj, storage, action_force(obj, storage))
+end
+function set_scheme(obj, ini, scheme, section, gulag_name)
+    local st    = xr_logic.assign_storage_and_bind(obj, ini, scheme, section)
+    st.logic    = xr_logic.cfg_get_switch_conditions(ini, section, obj)
+    
+    st.force    = cfg_get_number(ini, section, 'force', 0)
+    st.time     = cfg_get_number(ini, section, 'time', 0)
+    st.delay    = cfg_get_number(ini, section, 'delay', cfg_get_number(ini, section, 'period', 0))
+    --// Karlan->ALL: для периодичного приложения силы обязательно указать ключ period, если пауза не нужна написать period = 0
+    st.cyclic   = ini:line_exist(section, 'period')
+    if st.cyclic then
+        st.element  = cfg_get_string(ini, section, 'element')
+        st.angle    = cfg_get_number(ini, section, 'correct_angle', 0)
+        assert(st.element, [[invalid element definition for object <%s>]], obj)
+        return 
+    end
+    local path_name = cfg_get_string(ini, section, 'point', '')
+    local index     = cfg_get_number (ini, section, 'point_index', 0)
+    
+    assert(st.force>0, 'invalid force!')
+    assert(st.time>0, 'invalid time!')
+    assert(st.path_name~='', 'invalid waypoint name!')
+    local path = patrol(path_name)
+    assert(index<path:count(), 'invalid waypoint index!') 
+    st.point = path:point (index)
+end
+--//-----------------------------------------------------------------------------------------------

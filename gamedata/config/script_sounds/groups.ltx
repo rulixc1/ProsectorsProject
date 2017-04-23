@@ -1,0 +1,54 @@
+;***************************************************************
+; ГРУППЫ ОЗВУЧКИ
+;***************************************************************
+
+[list]
+state_group
+hello_group
+threat_weap_group
+gar_dolg_post
+mil_collect_group
+
+copter_hit_group
+testgroup1
+
+post_combat_group
+grenade_alarm_group
+
+
+; NPC
+[state_group]
+idle = 2,3,100
+
+[hello_group]
+idle = 2,3,100
+obj_queue = true
+
+[threat_weap_group]
+idle = 3,5,100
+;obj_queue = true
+
+[gar_dolg_post] ; блокпост долгарей на свалке, говорят по очереди
+idle = 8,16,100
+obj_queue = true
+theme_queue = false
+
+[mil_collect_group]
+idle = 1,2,100
+obj_queue = true
+
+[post_combat_group]
+idle = 2,2,100
+
+[grenade_alarm_group]
+idle = 3,4,100
+obj_queue = true
+
+
+;==
+[copter_hit_group]
+idle = 6,8,100
+
+[testgroup1]
+idle = 1,1,100
+shuffle = loop

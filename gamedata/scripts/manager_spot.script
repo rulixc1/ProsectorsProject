@@ -1,0 +1,511 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : manager_spot.script
+ Description: Менеджер меток
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local add_story_spots_data = {}
+local rem_story_spots_data = {}
+local lc_spots_data = {}
+local zone_spots_data = {}
+local human_spot_types = {}
+local smart_names = {}
+local update_logic_spots = {}
+--//--------------------
+local loaded = false
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = PROSECTORS_DEBUG and true --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("presets"):register(presets)
+    add_story_spots_data = {
+    --//==============================
+    --// escape_tasks.script
+    --//==============================
+    ['esc_tutorial_secret_place']   = {sid = 025, type = 'crlc_mdl',    hint = 'tutorial_secret_place1'},
+    ['esc_kolyan_lost']             = {sid = 028, type = 'crlc_big',    hint = 'esc_mill'},
+    ['esc_bridge_soldiers']         = {sid = 031, type = 'crlc_big',    hint = 'soldiers_bridge'},
+    ['esc_tutorial_secret']         = {sid = 026, type = 'crlc_small',  hint = 'tutorial_secret'},
+    ['esc_shustryi_secret']         = {sid = 027, type = 'crlc_small',  hint = 'tutorial_secret_shustryi'},
+    --//==============================
+    --// garbage_tasks.script
+    --//==============================
+    ['gar_wounded_help']            = {sid = 109, type = 'green_location',  hint = 'gar_wounded_help'},
+    ['gar_add_fake_spot1']          = {sid = 112, type = 'crlc_big',        hint = 'gar_swamp'},
+    ['gar_add_fake_spot2']          = {sid = 113, type = 'crlc_small',      hint = 'gar_secret1'},
+    ['gar_add_fake_spot3']          = {sid = 114, type = 'crlc_big',        hint = 'gar_car_graveyard'},
+    ['gar_add_fake_spot4']          = {sid = 115, type = 'crlc_mdl',        hint = 'gar_dolg_blokpost'},
+    ['gar_add_fake_spot5']          = {sid = 116, type = 'crlc_mdl',        hint = 'gar_angar'},
+    ['gar_add_fake_spot6']          = {sid = 117, type = 'crlc_mdl',        hint = 'gar_bandit_agr'},
+    ['gar_add_fake_spot7']          = {sid = 118, type = 'crlc_small',      hint = 'gar_tunnel'},
+    ['gar_add_fake_spot8']          = {sid = 119, type = 'crlc_big',        hint = 'gar_dogs_in_forest'},
+    ['gar_add_fake_spot9']          = {sid = 120, type = 'crlc_big',        hint = 'gar_trash1'},
+    ['gar_add_fake_spot10']         = {sid = 121, type = 'crlc_big',        hint = 'gar_trash1'},
+    ['gar_add_fake_spot11']         = {sid = 122, type = 'crlc_big',        hint = 'gar_trash1'},
+    --//==============================
+    --// agroprom_tasks.script
+    --//==============================
+    ['agr_zaz_location']            = {sid = 307, type = 'crlc_small',      hint = 'agr_zaz_hint'},
+    ['agr_factory_location']        = {sid = 320, type = 'crlc_big',        hint = 'agr_factory_hint'},
+    --//==============================
+    --// darkvalley_tasks.script
+    --//==============================
+    ['val_sos_give_tip']            = {sid = 422, type = 'val_sos_location',hint = ''},
+    ['val_show_zones']              = {
+                                        {sid = 427, type = 'crlc_big',      hint = 'val_zone_bandits_hint'},
+                                        --{sid = 428, type = 'crlc_big',      hint = 'val_zone_monolith_hint'}, --// Karlan: этого в природе не придумали еще
+                                        --{sid = 429, type = 'crlc_mdl',      hint = 'val_zone_robbers_hint'},
+                                        {sid = 430, type = 'crlc_small',    hint = 'val_zone_south_gate_hint'},
+                                      },
+    ['val_sos_give_tip']            = {sid = 431, type = 'crlc_mdl',        hint = 'val_zone_pipe_hint'},
+    ['val_sos_give_tip']            = {sid = 435, type = 'crlc_big',        hint = 'val_zone_farm_hint'},
+    --//==============================
+    --// bar_rostok_tasks.script
+    --//==============================
+    ['bar_dolg_petrenko']           = {sid = 506, type = 'green_location',  hint = 'bar_petrenko'},
+    --//==============================
+    --// yantar_tasks.script
+    --//==============================
+    --//==============================
+    --// deadcity_tasks.script
+    --//==============================
+    ['cit_doctor_shows_deadcity_zones'] = {
+                                        {sid = 1206, type = 'crlc_big',     hint = 'cit_killers_base_zone_hint'},
+                                        {sid = 1207, type = 'crlc_big',     hint = 'cit_bandits_base_zone_hint'},
+                                        {sid = 1208, type = 'crlc_mdl',     hint = 'cit_gorsovet_zone_hint'},
+                                      },
+    ['cit_jail_doctor_escape_task'] = {sid = 1203, type = 'crlc_small',     hint = 'cit_sewer_hint'},
+    ['cit_vp_info']                 = {sid = 1209, type = 'crlc_big',       hint = 'cit_vp_position_hint'},
+    --//==============================
+    --// mil_tasks.script
+    --//==============================
+    ['mil_bandit_flash_get']        = {sid = 705, type = 'mil_secret_location',        hint = ''}, --// Karlan: это мертвецкая телега, которая еще за собой и костыль тянет
+    --//==============================
+    --// radar_tasks.script
+    --//==============================
+    ['rad_code_door']               = {sid = 1001,type = 'rad_code_door_location',hint = ''},
+    --//==============================
+    --// pripyat_tasks.script
+    --//==============================
+    ['pri_show_zones']              = {
+                                        {sid = 824, type = 'crlc_mdl',     hint = 'pri_bus_station_zone_hint'},
+                                        {sid = 826, type = 'crlc_mdl',     hint = 'pri_monolith_base_zone_hint'},
+                                        {sid = 827, type = 'crlc_big',     hint = 'pri_stadium_zone_hint'},
+                                      },
+    ['cit_jail_doctor_pryp_task']   = {sid = 825, type = 'crlc_big',     hint = 'pri_hotel_zone_hint'},
+    }
+    rem_story_spots_data = {
+    --//==============================
+    --// escape_tasks.script
+    --//==============================
+    ['esc_tutorial_secret_place_found'] = {sid = 025, type = 'crlc_mdl'},
+    ['esc_kolyan_found']                = {sid = 028, type = 'crlc_big'},
+    ['esc_tutorial_secret_find']        = {sid = 026, type = 'crlc_small'},
+    ['esc_shustryi_secret_find']        = {sid = 027, type = 'crlc_small'},
+    --//==============================
+    --// garbage_tasks.script
+    --//==============================
+    ['gar_hellcar_death']           = {sid = 107, type = 'green_location'},
+    ['gar_wounded_fight']           = {sid = 109, type = 'green_location'},
+    ['gar_remove_fake_spot1']       = {sid = 112, type = 'crlc_big'},
+    ['gar_remove_fake_spot2']       = {sid = 113, type = 'crlc_small'},
+    ['gar_remove_fake_spot3']       = {sid = 114, type = 'crlc_big'},
+    ['gar_remove_fake_spot4']       = {sid = 115, type = 'crlc_mdl'},
+    ['gar_remove_fake_spot5']       = {sid = 116, type = 'crlc_mdl'},
+    ['gar_remove_fake_spot6']       = {sid = 117, type = 'crlc_mdl'},
+    ['gar_remove_fake_spot7']       = {sid = 118, type = 'crlc_small'},
+    ['gar_remove_fake_spot8']       = {sid = 119, type = 'crlc_big'},
+    ['gar_remove_fake_spot9']       = {sid = 120, type = 'crlc_big'},
+    ['gar_remove_fake_spot10']      = {sid = 121, type = 'crlc_big'},
+    ['gar_remove_fake_spot11']      = {sid = 122, type = 'crlc_big'},
+    --//==============================
+    --// agroprom_tasks.script
+    --//==============================
+    ['agr_zaz_found']               = {sid = 307, type = 'crlc_small'},
+    --//==============================
+    --// darkvalley_tasks.script
+    --//==============================
+    ['val_sos_actor_near_wounded']  = {sid = 422, type = 'val_sos_location'},
+    --//==============================
+    --// bar_rostok_tasks.script
+    --//==============================
+    ['bar_dolg_community_start']    = {sid = 506, type = 'green_location'},
+    --//==============================
+    --// yantar_tasks.script
+    --//==============================
+    --//==============================
+    --// deadcity_tasks.script
+    --//==============================
+    --//==============================
+    --// mil_tasks.script
+    --//==============================
+    ['mil_bandit_secret_found']     = {sid = 705, type = 'mil_secret_location'},
+    --//==============================
+    --// radar_tasks.script
+    --//==============================
+    ['rad_code_door_found']         = {sid = 1001,type = 'rad_code_door_location'},
+    --//==============================
+    --// pripyat_tasks.script
+    --//==============================
+    }
+    lc_spots_data = {
+        --// ORIGINAL LC
+        {sid = 91,  type = "level_changer_up",          hint = "to_garbage"},
+        {sid = 191, type = "level_changer_left",        hint = "to_agroprom"},
+        {sid = 192, type = "level_changer_left",        hint = "to_agroprom"},
+        {sid = 193, type = "level_changer_down",        hint = "to_escape"},
+        {sid = 194, type = "level_changer_left_up",     hint = "to_bar"},
+        {sid = 195, type = "level_changer_right",       hint = "to_darkvalley"},
+        {sid = 196, type = "level_changer_right",       hint = "to_darkvalley"},
+        {sid = 391, type = "level_changer_right",       hint = "to_garbage"},
+        {sid = 392, type = "level_changer_right",       hint = "to_garbage"},
+        {sid = 415, type = 'level_changer_left',        hint = 'to_garbage'},
+        {sid = 416, type = 'level_changer_left',        hint = 'to_garbage'},
+        {sid = 417, type = 'level_changer_down',        hint = 'to_escape'},
+        {sid = 608, type = 'level_changer_down_left',   hint = 'to_yantar'},
+        {sid = 592, type = 'level_changer_up',          hint = 'to_military'},
+        {sid = 593, type = 'level_changer_right_down',  hint = 'to_garbage'},
+        {sid = 594, type = 'level_changer_left',        hint = 'to_rostok'},
+        {sid = 771, type = 'level_changer_down_left',   hint = 'to_bar'},
+        {sid = 773, type = 'level_changer_up_right',    hint = 'to_radar'},
+        {sid = 925, type = 'level_changer_right_down',  hint = 'to_rostok'},
+        {sid = 1007,type = 'level_changer_left_up',     hint = 'to_pripyat'},
+        {sid = 1008,type = 'level_changer_down_left',   hint = 'to_military'},
+        {sid = 832, type = 'level_changer_up',          hint = 'to_aes'},
+        {sid = 833, type = 'level_changer_right_down',  hint = 'to_radar'},
+    }
+    zone_spots_data = {
+        {name = "esc_lager", hint = "Деревня новичков"},
+        {name = "esc_fabrika_bandit", hint = "АТП"},
+        {name = "esc_selo1_sr", hint = "Элеватор"},
+        {name = "escape_blockpost_zone", hint = "Блокпост"},
+        {name = "esc_bridge_kill_zone", hint = "Блокпост под мостом"},
+        {name = "esc_flesh_1", hint = "Ферма"},
+        {name = "esc_stalker_camp", hint = "Лагерь сталкеров"},
+        {name = "gar_fake_spot6", hint = "Стоянка брошенной техники"},
+        {name = "gar_space_restrictor_0003", hint = "Барахолка"},
+        {name = "gar_dolg_blokpost", hint = "Блокпост группировки \"Долг\""},
+        {name = "gar_seryi_battle_restrictor", hint = "Ангар"},
+        {name = "agr2_st_factory", hint = "Фабрика"},
+        {name = "agr_nii_space_restrictor", hint = "НИИ \"Агропром\""},
+        {name = "bar_arena_restrictor", hint = "Арена"},
+        {name = "bar_no_weapon_zone", hint = "Бар \"100 рентген\""},
+        {name = "bar_dolg_bunker", hint = "База группировки \"Долг\""},
+        {name = "val_lager_bandits_restrictor", hint = "Старая фабрика"},
+        {name = "val_sos_bs_zone", hint = "Бензоколонка"},
+        {name = "val_raid_go2_zone", hint = "Завод"},
+        {name = "val_farm_zone", hint = "Ферма"},
+        {name = "yan_spawn_01", hint = "Завод"},
+        {name = "yan_no_weapon_restr", hint = "Бункер ученых"},
+    }
+    human_spot_types = {
+        ['trader']      = {map_location = "ui_pda2_trader_location",    hint = "st_ui_pda_legend_trader"},
+        ['mechanic']    = {map_location = "ui_pda2_mechanic_location",  hint = "st_ui_pda_legend_mechanic"},
+        ['guider']      = {map_location = "ui_pda2_scout_location",     hint = "st_ui_pda_legend_scout"},
+        ['quest_npc']   = {map_location = "ui_pda2_quest_npc_location", hint = "st_ui_pda_legend_vip"},
+        ['medic']       = {map_location = "ui_pda2_medic_location",     hint = "st_ui_pda_legend_medic"},
+    }
+    smart_names = {
+        ['esc_lager'] = "Деревня новичков",
+        ['esc_blokpost'] = "Блокпост",
+        ['esc_bridge'] = "Блокпост под мостом",
+    }
+    loaded = true
+    log('init:[>]')
+end
+--//-------------------------
+function presets()
+    assert(loaded, 'not init!')
+    
+    event("info_received"):register(proceed_info)
+    event("actor_spawn"):register(proceed_spawn)
+    event("update_1st"):register(proceed_1st)
+    event("npc_death_st"):register(remove_level_spot)
+	event("actor_update"):register(update_show_spot, {__period = 1000})
+end
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// 
+--//-----------------------------------------------------------------
+local add_story_spots_info = function(info)
+    local t = add_story_spots_data[info]
+    if not is_table(t) then return false end
+    if is_number(t.sid) then
+        add_map_spot_by_sid(t.sid, t.type, t.hint or '')
+        if _DEBUG_ then
+            local obj = sim:story_object(tonumber(t.sid)) --// Karlan->ALL: если выбивает nil, значит это разрабы сид либо вырезали либо не добавили, так что руками добавляем сами!
+            if not obj then collect_info('INVALID SPOT = [%s]:[%s]:[%s]:[%s]:[%s]:[%s]', t.sid, t.type, t.hint or '', sim:story_object(t.sid), level.object_by_sid(t.sid), obj and obj.id) end
+            manager_news.send_message(make_string('SPOT MANAGER[S]: Пытаюсь поставить метку %s на объект %s, описание: %s', t.type,t.sid,game.translate_string(t.hint)))
+        end
+        return has_map_spot_by_sid(t.sid, t.type) --// Karlan: при инвалидном объекте метка не поставится, а функция все равно вернет true, поэтому мы удостоверимся и вернем то что реально произошло
+    end
+    for _,v in ipairs(t) do --// Karlan->Karlan: здесь может быть проблема, ага, та самая, если будет, то часть массива размотать! TODO
+        if _DEBUG_ then manager_news.send_message(make_string('SPOT MANAGER[C]: Пытаюсь поставить метку %s на объект %s, описание: %s', t.type,t.sid,game.translate_string(t.hint))) end
+        add_map_spot_by_sid(v.sid, v.type, v.hint or '')
+    end
+    return true --// будем верить, что в таблице все было хорошо
+end
+local rem_story_spots_info = function(info)
+    local t = rem_story_spots_data[info]
+    if not is_table(t) then return end
+    if is_number(t.sid) then
+        remove_map_spot_by_sid(t.sid, t.type)
+        return not has_map_spot_by_sid(t.sid, t.type)
+    end
+    for _,v in ipairs(t) do
+        remove_map_spot_by_sid(v.sid, v.type)
+    end
+    return true --// будем верить, что в таблице все было хорошо
+end
+local story_spots_spawn = function()
+    -- for k,v in pairs(add_story_spots_data) do
+        -- if has_info(k) then
+            -- if is_number(v.sid) then
+                -- add_map_spot_by_sid(v.sid, v.type, v.hint or '')
+            -- else
+                -- for _,vv in ipairs(v) do
+                    -- add_map_spot_by_sid(vv.sid, vv.type, vv.hint or '')
+                -- end
+            -- end
+        -- end
+    -- end
+    -- for k,v in pairs(rem_story_spots_data) do --// этот цикл позволит стереть все неактуальные метки
+        -- if has_info(k) then
+            -- if is_number(v.sid) then
+                -- remove_map_spot_by_sid(v.sid, v.type)
+            -- else
+                -- for _,vv in ipairs(v) do
+                    -- remove_map_spot_by_sid(vv.sid, vv.type)
+                -- end
+            -- end
+        -- end
+    -- end
+    --// Karlan: экая мерзость, ну да ладно, загенерим
+    local obj
+    --// ADD
+    if has_info('agr_zaz_location') then obj = sim:story_object(307) if obj then add_map_spot(obj.id, 'crlc_small', 'agr_zaz_hint') end end
+    if has_info('cit_jail_doctor_escape_task') then obj = sim:story_object(1203) if obj then add_map_spot(obj.id, 'crlc_small', 'cit_sewer_hint') end end
+    if has_info('rad_code_door') then obj = sim:story_object(1001) if obj then add_map_spot(obj.id, 'rad_code_door_location', '') end end
+    if has_info('gar_add_fake_spot3') then obj = sim:story_object(114) if obj then add_map_spot(obj.id, 'crlc_big', 'gar_car_graveyard') end end
+    if has_info('gar_add_fake_spot2') then obj = sim:story_object(113) if obj then add_map_spot(obj.id, 'crlc_small', 'gar_secret1') end end
+    if has_info('cit_jail_doctor_pryp_task') then obj = sim:story_object(825) if obj then add_map_spot(obj.id, 'crlc_big', 'pri_hotel_zone_hint') end end
+    if has_info('gar_add_fake_spot1') then obj = sim:story_object(112) if obj then add_map_spot(obj.id, 'crlc_big', 'gar_swamp') end end
+    if has_info('esc_tutorial_secret_place') then obj = sim:story_object(25) if obj then add_map_spot(obj.id, 'crlc_mdl', 'tutorial_secret_place1') end end
+    if has_info('esc_shustryi_secret') then obj = sim:story_object(27) if obj then add_map_spot(obj.id, 'crlc_small', 'tutorial_secret_shustryi') end end
+    if has_info('gar_add_fake_spot10') then obj = sim:story_object(121) if obj then add_map_spot(obj.id, 'crlc_big', 'gar_trash1') end end
+    if has_info('gar_add_fake_spot11') then obj = sim:story_object(122) if obj then add_map_spot(obj.id, 'crlc_big', 'gar_trash1') end end
+    if has_info('pri_show_zones') then obj = sim:story_object(824) if obj then add_map_spot(obj.id, 'crlc_mdl', 'pri_bus_station_zone_hint') end obj = sim:story_object(826) if obj then add_map_spot(obj.id, 'crlc_mdl', 'pri_monolith_base_zone_hint') end obj = sim:story_object(827) if obj then add_map_spot(obj.id, 'crlc_big', 'pri_stadium_zone_hint') end end
+    if has_info('mil_bandit_flash_get') then obj = sim:story_object(705) if obj then add_map_spot(obj.id, 'mil_secret_location', '') end end
+    if has_info('cit_vp_info') then obj = sim:story_object(1209) if obj then add_map_spot(obj.id, 'crlc_big', 'cit_vp_position_hint') end end
+    if has_info('cit_doctor_shows_deadcity_zones') then obj = sim:story_object(1206) if obj then add_map_spot(obj.id, 'crlc_big', 'cit_killers_base_zone_hint') end obj = sim:story_object(1207) if obj then add_map_spot(obj.id, 'crlc_big', 'cit_bandits_base_zone_hint') end obj = sim:story_object(1208) if obj then add_map_spot(obj.id, 'crlc_mdl', 'cit_gorsovet_zone_hint') end end
+    if has_info('bar_dolg_petrenko') then obj = sim:story_object(506) if obj then add_map_spot(obj.id, 'green_location', 'bar_petrenko') end end
+    if has_info('val_show_zones') then obj = sim:story_object(427) if obj then add_map_spot(obj.id, 'crlc_big', 'val_zone_bandits_hint') end --[[obj = sim:story_object(428) if obj then add_map_spot(obj.id, 'crlc_big', 'val_zone_monolith_hint') end obj = sim:story_object(429) if obj then add_map_spot(obj.id, 'crlc_mdl', 'val_zone_robbers_hint') end]] obj = sim:story_object(430) if obj then add_map_spot(obj.id, 'crlc_small', 'val_zone_south_gate_hint') end end
+    if has_info('val_sos_give_tip') then obj = sim:story_object(435) if obj then add_map_spot(obj.id, 'crlc_big', 'val_zone_farm_hint') end end
+    if has_info('gar_wounded_help') then obj = sim:story_object(109) if obj then add_map_spot(obj.id, 'green_location', 'gar_wounded_help') end end
+    if has_info('gar_add_fake_spot4') then obj = sim:story_object(115) if obj then add_map_spot(obj.id, 'crlc_mdl', 'gar_dolg_blokpost') end end
+    if has_info('gar_add_fake_spot9') then obj = sim:story_object(120) if obj then add_map_spot(obj.id, 'crlc_big', 'gar_trash1') end end
+    if has_info('gar_add_fake_spot8') then obj = sim:story_object(119) if obj then add_map_spot(obj.id, 'crlc_big', 'gar_dogs_in_forest') end end
+    if has_info('esc_kolyan_lost') then obj = sim:story_object(28) if obj then add_map_spot(obj.id, 'crlc_big', 'esc_mill') end end
+    if has_info('gar_add_fake_spot6') then obj = sim:story_object(117) if obj then add_map_spot(obj.id, 'crlc_mdl', 'gar_bandit_agr') end end
+    if has_info('gar_add_fake_spot7') then obj = sim:story_object(118) if obj then add_map_spot(obj.id, 'crlc_small', 'gar_tunnel') end end
+    if has_info('gar_add_fake_spot5') then obj = sim:story_object(116) if obj then add_map_spot(obj.id, 'crlc_mdl', 'gar_angar') end end
+    if has_info('esc_bridge_soldiers') then obj = sim:story_object(31) if obj then add_map_spot(obj.id, 'crlc_big', 'soldiers_bridge') end end
+    if has_info('agr_factory_location') then obj = sim:story_object(320) if obj then add_map_spot(obj.id, 'crlc_big', 'agr_factory_hint') end end
+    if has_info('esc_tutorial_secret') then obj = sim:story_object(26) if obj then add_map_spot(obj.id, 'crlc_small', 'tutorial_secret') end end
+    --// REMOVE
+    if has_info('gar_remove_fake_spot10') then obj = sim:story_object(121) if obj then remove_map_spot(obj.id, 'crlc_big') end end
+    if has_info('esc_tutorial_secret_find') then obj = sim:story_object(26) if obj then remove_map_spot(obj.id, 'crlc_small') end end
+    if has_info('gar_remove_fake_spot9') then obj = sim:story_object(120) if obj then remove_map_spot(obj.id, 'crlc_big') end end
+    if has_info('mil_bandit_secret_found') then obj = sim:story_object(705) if obj then remove_map_spot(obj.id, 'mil_secret_location') end end
+    if has_info('esc_kolyan_found') then obj = sim:story_object(28) if obj then remove_map_spot(obj.id, 'crlc_big') end end
+    if has_info('gar_remove_fake_spot2') then obj = sim:story_object(113) if obj then remove_map_spot(obj.id, 'crlc_small') end end
+    if has_info('gar_wounded_fight') then obj = sim:story_object(109) if obj then remove_map_spot(obj.id, 'green_location') end end
+    if has_info('gar_remove_fake_spot1') then obj = sim:story_object(112) if obj then remove_map_spot(obj.id, 'crlc_big') end end
+    if has_info('gar_remove_fake_spot6') then obj = sim:story_object(117) if obj then remove_map_spot(obj.id, 'crlc_mdl') end end
+    if has_info('gar_hellcar_death') then obj = sim:story_object(107) if obj then remove_map_spot(obj.id, 'green_location') end end
+    if has_info('gar_remove_fake_spot3') then obj = sim:story_object(114) if obj then remove_map_spot(obj.id, 'crlc_big') end end
+    if has_info('esc_tutorial_secret_place_found') then obj = sim:story_object(25) if obj then remove_map_spot(obj.id, 'crlc_mdl') end end
+    if has_info('gar_remove_fake_spot7') then obj = sim:story_object(118) if obj then remove_map_spot(obj.id, 'crlc_small') end end
+    if has_info('rad_code_door_found') then obj = sim:story_object(1001) if obj then remove_map_spot(obj.id, 'rad_code_door_location') end end
+    if has_info('bar_dolg_community_start') then obj = sim:story_object(506) if obj then remove_map_spot(obj.id, 'green_location') end end
+    if has_info('val_sos_actor_near_wounded') then obj = sim:story_object(422) if obj then remove_map_spot(obj.id, 'val_sos_location') end end
+    if has_info('gar_remove_fake_spot8') then obj = sim:story_object(119) if obj then remove_map_spot(obj.id, 'crlc_big') end end
+    if has_info('gar_remove_fake_spot4') then obj = sim:story_object(115) if obj then remove_map_spot(obj.id, 'crlc_mdl') end end
+    if has_info('gar_remove_fake_spot5') then obj = sim:story_object(116) if obj then remove_map_spot(obj.id, 'crlc_mdl') end end
+    if has_info('gar_remove_fake_spot11') then obj = sim:story_object(122) if obj then remove_map_spot(obj.id, 'crlc_big') end end
+    if has_info('agr_zaz_found') then obj = sim:story_object(307) if obj then remove_map_spot(obj.id, 'crlc_small') end end
+    if has_info('esc_shustryi_secret_find') then obj = sim:story_object(27) if obj then remove_map_spot(obj.id, 'crlc_small') end end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Binders
+--//-----------------------------------------------------------------
+function proceed_info(e)
+    local info = e.info
+    add_story_spots_info(info)
+    rem_story_spots_info(info)
+end
+function proceed_spawn()
+    for _,v in ipairs(zone_spots_data) do
+        local sobj = sim:object(v.name)
+        if not sobj then return warning('CYCLE STOP: bad object [%s]:[%s]', v.name, sobj) end
+        add_map_spot(sobj.id, 'primary_object', v.hint)
+    end
+end
+function proceed_1st(e)
+    _G.watchdog = make_string('Update is worked is Binders(%s)', e.delta)
+    story_spots_spawn()
+    _G.watchdog = make_string('Update is worked is story_spots_spawn(%s)', e.delta)
+    -- for _,v in ipairs(lc_spots_data) do --// метки ставятся только на 'живые' переходы
+        -- log('sid = (%s)%s, type = (%s)%s, hint = (%s)%s', type(v.sid), v.sid, type(v.type), v.type, type(v.hint), v.hint)
+        -- local sobj = sim:story_object(v.sid)
+        -- if not sobj then return warning('CYCLE STOP: bad object [%s]:[%s]', v.sid, sobj) end
+        -- add_map_spot(sobj.id, v.type, v.hint)
+    -- end
+    --// Karlan: ну это вообще клиника, story_object не в силах работать под циклом, соответственно выход один - переделывать на имена, а пока так
+    local obj = sim:story_object(91) if obj then add_map_spot(obj.id, 'level_changer_up', 'to_garbage') end
+    obj = sim:story_object(191) if obj then add_map_spot(obj.id, 'level_changer_left', 'to_agroprom') end
+    obj = sim:story_object(192) if obj then add_map_spot(obj.id, 'level_changer_left', 'to_agroprom') end
+    obj = sim:story_object(193) if obj then add_map_spot(obj.id, 'level_changer_down', 'to_escape') end
+    obj = sim:story_object(194) if obj then add_map_spot(obj.id, 'level_changer_left_up', 'to_bar') end
+    obj = sim:story_object(195) if obj then add_map_spot(obj.id, 'level_changer_right', 'to_darkvalley') end
+    obj = sim:story_object(196) if obj then add_map_spot(obj.id, 'level_changer_right', 'to_darkvalley') end
+    obj = sim:story_object(391) if obj then add_map_spot(obj.id, 'level_changer_right', 'to_garbage') end
+    obj = sim:story_object(392) if obj then add_map_spot(obj.id, 'level_changer_right', 'to_garbage') end
+    obj = sim:story_object(415) if obj then add_map_spot(obj.id, 'level_changer_left', 'to_garbage') end
+    obj = sim:story_object(416) if obj then add_map_spot(obj.id, 'level_changer_left', 'to_garbage') end
+    obj = sim:story_object(417) if obj then add_map_spot(obj.id, 'level_changer_down', 'to_escape') end
+    obj = sim:story_object(608) if obj then add_map_spot(obj.id, 'level_changer_down_left', 'to_yantar') end
+    obj = sim:story_object(592) if obj then add_map_spot(obj.id, 'level_changer_up', 'to_military') end
+    obj = sim:story_object(593) if obj then add_map_spot(obj.id, 'level_changer_right_down', 'to_garbage') end
+    obj = sim:story_object(594) if obj then add_map_spot(obj.id, 'level_changer_left', 'to_rostok') end
+    obj = sim:story_object(771) if obj then add_map_spot(obj.id, 'level_changer_down_left', 'to_bar') end
+    obj = sim:story_object(773) if obj then add_map_spot(obj.id, 'level_changer_up_right', 'to_radar') end
+    obj = sim:story_object(925) if obj then add_map_spot(obj.id, 'level_changer_right_down', 'to_rostok') end
+    obj = sim:story_object(1007) if obj then add_map_spot(obj.id, 'level_changer_left_up', 'to_pripyat') end
+    obj = sim:story_object(1008) if obj then add_map_spot(obj.id, 'level_changer_down_left', 'to_military') end
+    obj = sim:story_object(832) if obj then add_map_spot(obj.id, 'level_changer_up', 'to_aes') end
+    obj = sim:story_object(833) if obj then add_map_spot(obj.id, 'level_changer_right_down', 'to_radar') end
+    --// Prosectors LCs
+    obj = sim:story_object(8000) if obj then add_map_spot(obj.id, 'level_changer_down', 'to_aes') end
+    obj = sim:story_object(8001) if obj then add_map_spot(obj.id, 'level_changer_left', 'to_aes') end
+    obj = sim:story_object(8002) if obj then add_map_spot(obj.id, 'level_changer_down', 'to_pripyat') end
+end
+function remove_level_spot(e) --// Karlan->Karlan: уточнить, есть предположение, что надо все вырезать а при смерти любого непися не мучать его логику а просто пытатся снять все метки, это позволит устанавливать метки откуда угодно, а не только из логики
+    local npc, st = e.obj, e.st
+    local condlist_section = st.active_section
+    local map_spot = cfg_get_string(st.ini, st.active_section, "level_spot")
+    if not map_spot then
+        condlist_section = st.section_logic
+        map_spot = cfg_get_string(st.ini, st.section_logic, "level_spot")
+    end
+    if not map_spot then return end
+    map_spot = parse_condlist(map_spot)
+    map_spot = xr_logic.pick_section_from_condlist(npc, map_spot)
+    if not is_string(map_spot) then return end
+    if not human_spot_types[map_spot] then return warning('spot [%s] doesnt find in human_spot_types', map_spot) end
+    local id = get_id(npc)
+    remove_map_spot(id, human_spot_types[map_spot].map_location, true)
+    for k,v in pairs(update_logic_spots) do
+        if v.obj:id() == id then update_logic_spots[k] = nil break end --// а тут мы снимем мужичка
+    end
+end
+--//-----------------------------------------------------------------
+--// Logic
+--//-----------------------------------------------------------------
+function update_show_spot(e)
+    _G.watchdog = make_string('Update is worked is update_show_spot start(%s)', e.delta)
+    for k,v in pairs(update_logic_spots) do
+        if not is_game_object(v.obj) then update_logic_spots[k] = nil return end --// Karlan: если объект вышел в оффлайн, то больше нам не к чему его грузить
+        local current_spot = xr_logic.pick_section_from_condlist(v.obj, v.condlist)
+        _G.watchdog = make_string('Update is worked is current_spot(%s)', e.delta)
+        if v.current ~= current_spot then
+            _G.watchdog = make_string('Update is worked is alive(%s)', e.delta)
+            local id = get_id(v.obj)
+            local st = db.storage[id]
+            local scheme = st and st.active_scheme
+            local section = st and st.active_section
+            reset_show_spot(v.obj, scheme, st, section)
+            update_logic_spots[k] = nil
+        end
+    end
+    _G.watchdog = make_string('Update is worked is update_show_spot finish(%s)', e.delta)
+end
+function reset_show_spot(npc, scheme, st, section)
+    local spot_section
+    if scheme == nil or scheme == "nil" then
+        spot_section = cfg_get_string(st.ini, st.section_logic, "show_spot", 'true')
+    else
+        spot_section = cfg_get_string(st.ini, section, "show_spot", 'true')
+    end
+    local spot = "false"
+    if npc:character_community() ~= "zombied" then
+        local spot_condlist = parse_condlist(spot_section)
+        spot = xr_logic.pick_section_from_condlist(npc, spot_condlist)
+    end
+    local map_spot = cfg_get_string(st.ini, st.section_logic, "level_spot")
+    if map_spot == nil then
+        map_spot = cfg_get_string(st.ini, section, "level_spot")
+    end
+    if map_spot ~= nil then
+        map_spot = parse_condlist(map_spot)
+        local t = {}
+        t.obj = npc
+        t.condlist = map_spot
+        map_spot = xr_logic.pick_section_from_condlist(npc, map_spot)
+        t.current = map_spot
+        table.insert(update_logic_spots, t)
+    end
+    printf("STALKER SPOT SECTION [%s]:[(%s)%s]:[(%s)%s]:[(%s)%s]", npc, type(map_spot), map_spot, type(spot_section), spot_section, type(spot), spot)
+    local npc_id = get_id(npc)
+    local sobj = sim:object(npc_id)
+    if not sobj or not sobj.online then return end
+    if spot == "false" then --// Karlan: с визиблом надо как можно быстрее расквитатся
+        sobj:visible_for_map(false)
+    else
+        sobj:visible_for_map(true)
+    end
+    if map_spot == nil then
+        for _,v in ipairs(human_spot_types) do
+            remove_map_spot(npc_id, v.map_location)
+        end
+        return
+    end
+    local map_location = human_spot_types[map_spot].map_location or ''
+    local hint = cfg_get_string(st.ini, st.section_logic, "text_spot")
+    if hint == nil then
+        hint = cfg_get_string(st.ini, section, "text_spot")
+    end
+    if hint then
+        hint = parse_condlist(hint)
+        hint = xr_logic.pick_section_from_condlist(npc, hint)
+        hint = hint or human_spot_types[map_spot].hint or ''
+    else
+        hint = human_spot_types[map_spot].hint or ''
+    end
+    local npc_smrt_id = sobj.m_smart_terrain_id
+    if is_number(npc_smrt_id) and npc_smrt_id ~= INVALID_ID then --// для теста пока будет ставить на всех
+        local smrt = sim:object(npc_smrt_id)
+        if smrt then
+            local location = smart_names[smrt:name()] and ". \\n"..game.translate_string("st_location").." "..smart_names[smrt:name()] or ""
+            hint = game.translate_string(hint)..location
+        end
+    end
+    if npc and get_npc_general_goodwill(npc, actor) >= -1000 then
+        hint = npc:character_name() .. '. ' .. game.translate_string(hint) .. '.'
+        add_map_spot(sobj.id, map_location, hint)
+    end
+end
+--//-----------------------------------------------------------------------------------------------

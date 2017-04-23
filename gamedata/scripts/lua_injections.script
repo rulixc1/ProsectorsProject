@@ -1,0 +1,23 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : lua_injections.script
+ Description: Регистратор расширений Lua
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Nazgool
+ Editor(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+_G.LJ2 = (jit.version_num >= 20000) --// [+] Karlan
+log1(string.format('LuaJIT 2 is %savailable', LJ2 and '' or 'NOT ')) --// [+] Karlan
+
+-- dll`s
+require 'lfs'
+if LJ2 then
+    _G.ffi = require 'ffi' --// only for LuaJIT 2.0.0-beta6 or higher --// [+] Karlan
+end
+
+-- scripts
+prefetch 'lua_extensions' --// Модуль расширений луа
+prefetch 'lua_xml'        --// Функционал для работы с *.xml файлами
+prefetch 'lua_cfg'        --// Функционал для работы с *.ltx файлами
+prefetch 'lua_helper'     --// Модуль общих вспомогательных функций             --// [+] Karlan
+prefetch 'lua_helper_ai'  --// Модуль вспомогательных функций для логики        --// [+] Karlan
+prefetch 'lua_helper_ui'  --// Модуль вспомогательных функций для интерфейсов   --// [+] Karlan

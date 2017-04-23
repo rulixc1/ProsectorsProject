@@ -1,0 +1,169 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : sr_teleport.script
+ Description: teleport restrictor
+ Copyright  : 2005 © GSC Game World
+ Author(s)  : GSC Game World
+ Update     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--[[
+Karlan->ALL: из нового, может перемещать объекты, а не только актора, и еще научил его работать как аномалию, перемещает в рандомный вертекс уровн€, кастом дата в одну строку, очень удобно, все протестил
+]]
+--// TODO: Karlan->Team: надо оптимизировать
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local teleport_idle         = 0 --// дефолтовое сост€оние, телепорт в ожидании гостей
+local teleport_activated    = 1 --// телепорт забрасывает гостей на поинт
+local teleport_zones        = {} --// объект телепорта по айди
+--//--------------------
+local loaded = false
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and true --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "action_teleport"
+function action_teleport:__init(obj, storage)
+    self.object = obj
+    self.st = storage
+    self.id = obj:id()
+    
+    self.npc = nil --// Karlan: локальна€ ссылка на нпс, чтобы не потер€лс€ пока активируем телепорт
+    self.state = teleport_idle
+    self.timer = nil
+    --// Karlan: флаги что актор или нпс в зоне телепорта
+    self.in_actor = false
+    self.in_npc = false
+end
+function action_teleport:reset_scheme()
+    teleport_zones[self.id] = self
+end
+function action_teleport:update(delta)
+    if self.state == teleport_idle then
+        self.in_actor = self.object:inside(actor:position())
+        if self.in_actor or self.in_npc then
+            self.state = teleport_activated
+            self.timer = time_global()  
+            if self.in_actor then
+				-- assert(not level.get_pp_effector(2006)) --// Karlan->ALL: эффектор дефакто слишком короткий, а по времени еще не успевает удалитс€, так что здесь наложение друг на друга вполне уместно
+                level.add_pp_effector ("teleport.ppe", 2006, false)
+            end
+        end
+    end
+    if self.state == teleport_activated then    
+        if (time_global() - self.timer) >= self.st.timeout then
+            if self.st.random_vertex then
+                local vertex = math.random(level.get_graph().vertices_count)
+                if math.random(1) < self.st.random_vertex_prob then
+                    self.npc = nil
+                    self.in_actor = false
+                    self.in_npc = false
+                    self.state = teleport_idle
+                    return 
+                end
+                local pos = level.vertex_position(vertex)
+                if self.in_actor then
+                    actor:set_actor_position(pos)
+                    local snd_obj = m_sound.get_safe_sound_object([[affects\tinnitus3a]])
+                    snd_obj:play_no_feedback(actor, sound_object.s2d, 0, vector(), 1.0)  
+                end
+                if self.in_npc then
+                    self.npc:set_position(pos)
+                end
+                self.npc = nil
+                self.in_actor = false
+                self.in_npc = false
+                self.state = teleport_idle
+                return
+            end
+            -- ѕроизводим телепортацию
+            local temp = {}
+            local max_rnd = 0
+            for k,v in pairs(self.st.points) do        
+                -- ќпредел€ютс€ допустимые состо€ни€ дл€ лагер€.
+                temp[k] = v
+                max_rnd = max_rnd + v.prob
+            end
+            -- ќсуществл€етс€ рандомный взвешенный переход.
+            local p = math.random(0, max_rnd)
+            for k,v in pairs(temp) do
+                p = p - v.prob
+                if p <= 0 then
+                    -- телепорт в выбранную точку
+                    printf("teleporting to [%s] look [%s]", v.point, v.look)
+                    local dir = patrol(v.look):point(0):sub(patrol(v.point):point(0))
+                    if self.in_actor then
+                        actor:set_actor_position(patrol(v.point):point(0))
+                        actor:set_actor_direction(-dir:getH())
+                        local snd_obj = m_sound.get_safe_sound_object([[affects\tinnitus3a]]) --// Karlan: аффект типа в голове, так что несуразно его играть 3д от бошки непис€
+                        snd_obj:play_no_feedback(actor, sound_object.s2d, 0, vector(), 1.0)  
+                    end
+                    if self.in_npc then
+                        self.npc:set_position(patrol(v.point):point(0))
+                        self.npc:set_direction(-dir:getH())
+                    end
+                    break
+                end
+            end
+            self.npc = nil
+            self.in_actor = false
+            self.in_npc = false
+            self.state = teleport_idle
+        else
+            return
+        end
+    end
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then teleport_zones[self.id] = nil return end
+end
+function action_teleport:check_obj(obj)
+    if self.st.npc_teleport and self.object:inside(obj:position()) then
+        log('action_teleport:check_obj: obj<%s> in teleport', obj)
+        if self.npc == nil then
+            self.npc = obj
+        end
+        self.in_npc = is_userdata(self.npc)
+        log('action_teleport:check_obj: npc<%s>:in_npc<%s>', self.npc, self.in_npc)
+        self:update(delta)
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+function check_teleport(obj) --// на апдейты объектов, которых тоже хотим перекидывать
+    for _,v in pairs(teleport_zones) do
+        v:check_obj(obj)
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    xr_logic.subscribe_action_for_events(npc, storage, action_teleport(npc, storage))
+end
+function set_scheme(obj, ini, scheme, section, gulag_name)
+    local st = xr_logic.assign_storage_and_bind(obj, ini, scheme, section)
+    st.logic = xr_logic.cfg_get_switch_conditions(ini, section, obj)
+    
+    st.npc_teleport = cfg_get_bool(ini, section, "npc_teleport", false)
+    st.timeout = cfg_get_number(ini, section, "timeout", st.npc_teleport and 50 or 900) --// Karlan: light optimize
+    st.random_vertex_prob = cfg_get_number(ini, section, "random_vertex_prob", 1)
+    st.random_vertex = cfg_get_bool(ini, section, "random_vertex", false)
+    if st.random_vertex then return end
+    st.points = {}
+    for i=1, 10 do
+        local t = 
+        {
+            point = cfg_get_string(ini, section, "point"..tostring(i), obj, false, "", "none"),
+            look = cfg_get_string(ini, section, "look"..tostring(i), obj, false, "", "none"),
+            prob = cfg_get_number(ini, section, "prob"..tostring(i), obj, false, 100)
+        }
+        if t.point == "none" or t.look == "none" then
+            break
+        end
+        table.insert(st.points, t)
+    end
+    assert(#st.points > 0, "Wrong point nums in sr_teleport [%s]", section)
+end
+--//-----------------------------------------------------------------------------------------------

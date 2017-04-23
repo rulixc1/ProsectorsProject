@@ -1,0 +1,176 @@
+;***************************************************************
+; ТЕМЫ ДЛЯ ПОСИДЕЛОК
+;***************************************************************
+
+[list_music_and_stories]
+intro_music
+harmonica
+;guitar	--> npc_item.ltx
+reac_music
+intro_joke
+joke
+reac_joke
+reac_laugh
+
+[_mas]
+npc_prefix = true
+idle = 0,0,100
+priority = 1
+;===============================================================
+
+;музыка
+
+[intro_music]:_mas
+path					= talk\intros\intro_music_
+idle					= 1,1,75
+delay_sound				= 1500,3000
+
+[harmonica]:_mas
+path					= music\harmonica\harmonica_
+npc_prefix				= false
+scenario				= true
+
+[reac_music]:_mas
+path					= reactions\music\reaction_music_
+idle					= 5,5,75
+delay_sound				= 1500,3000
+
+;шуточки
+[intro_joke]:_mas
+path					= talk\intros\intro_joke_
+idle					= 3,5,95
+delay_sound				= 500,1500
+
+[joke]:_mas
+path					= talk\jokes\joke_
+idle					= 1,1,100
+delay_sound				= 300,5000
+
+[reac_joke]:_mas
+path					= reactions\joke\reaction_joke_
+idle					= 5,5,75
+delay_sound				= 350,3500
+
+[reac_laugh]:_mas
+path					= reactions\story\laughter_
+idle					= 1,1,60
+delay_sound				= 20,1000
+
+;истории
+[story_01]:_mas
+path					= talk\stories\story001_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[story_02]:_mas
+path					= talk\stories\story002_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[story_03]:_mas
+path					= talk\stories\story003_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[story_04]:_mas
+path					= talk\stories\story004_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[story_05]:_mas
+path					= talk\stories\story005_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[story_06]:_mas
+path					= talk\stories\story006_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[legend_01]:_mas
+path					= talk\stories\legend001_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[legend_02]:_mas
+path					= talk\stories\legend002_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[legend_03]:_mas
+path					= talk\stories\legend003_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[legend_04]:_mas
+path					= talk\stories\legend004_part_
+idle					= 3,5,100
+shuffle					= seq
+
+[legend_05]:_mas
+path					= talk\stories\legend005_part_
+idle					= 3,5,100
+shuffle					= seq
+
+;реакция на истории
+[story_reac_action_right]:_mas
+path					= reactions\story\action_right_
+
+[story_reac_action_wrong]:_mas
+path					= reactions\story\action_wrong_
+
+[story_reac_advice_sceptic]:_mas
+path					= reactions\story\advice_sceptic_
+
+[story_reac_advice_support]:_mas
+path					= reactions\story\advice_support_
+
+[story_reac_belief_story]:_mas
+path					= reactions\story\belief_story_
+
+[story_reac_continue]:_mas
+path					= reactions\story\continue_
+
+[story_reac_cool_info]:_mas
+path					= reactions\story\cool_info_
+
+[story_reac_cool_teller]:_mas
+path					= reactions\story\cool_teller_
+
+[story_reac_disbelief]:_mas
+path					= reactions\story\disbelief_
+
+[story_reac_disbelief_story]:_mas
+path					= reactions\story\disbelief_story_
+
+[story_reac_disbelief_teller]:_mas
+path					= reactions\story\disbelief_teller_
+
+[story_reac_doubt]:_mas
+path					= reactions\story\doubt_
+
+[story_reac_fear]:_mas
+path					= reactions\story\fear_
+
+[story_reac_final_happy]:_mas
+path					= reactions\story\final_happy_
+
+[story_reac_final_tragic]:_mas
+path					= reactions\story\final_tragic_
+
+[story_reac_laughter]:_mas
+path					= reactions\story\laughter_
+
+[story_reac_old_story]:_mas
+path					= reactions\story\old_story_
+
+[story_reac_uncertain]:_mas
+path					= reactions\story\uncertain_
+
+[story_reac_wonder]:_mas
+path					= reactions\story\wonder_
+
+[story_reac_yes]:_mas
+path					= reactions\story\yes_
+
+;------------------------------------------------------------

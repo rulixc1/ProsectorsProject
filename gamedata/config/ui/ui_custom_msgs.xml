@@ -1,0 +1,160 @@
+<?xml version='1.0' encoding="UTF-8"?>
+<header>
+
+ <!----------------------- SDATA --------------------------->
+	<!-- POSITION ------------------------->
+    <debug_pos_cs x="170" y="10" width="230" height="150" complex_mode="1">
+		<text font="letterica16"  r="255" g="255" b="255" a="150" align="l"/>
+	</debug_pos_cs>
+	<!-- ZONES ---------------------------->
+	<debug_zone_cs x="510" y="10" width="300" height="150" complex_mode="1">
+		<text font="letterica16"  r="255" g="255" b="255" a="150" align="l"/>
+	</debug_zone_cs>
+    <!-- RELATION ---------------------------->
+    <debug_relation_cs x="10" y="200" width="300" height="150" complex_mode="1">
+        <text font="letterica16"  r="255" g="255" b="255" a="150" align="l"/>
+    </debug_relation_cs>
+    <!-- ACTOR PARAMS ---------------------------->
+    <debug_param_cs x="380" y="10" width="100" height="150" complex_mode="1">
+        <text font="letterica16"  r="255" g="255" b="255" a="150" align="l"/>
+    </debug_param_cs>
+	<!----------------------- END SDATA ----------------------->
+
+    <hud_volume_static/>
+
+    <karlan_info x="1" y="700" width="1022" height="50" complex_mode="1" light_anim="ui_btn_hint" la_cyclic="0" la_texture="0" la_text="1" la_alpha="1" ttl="3">
+        <text align="c" font="graffiti22" r="225" g="225" b="250" a="255" />
+    </karlan_info>
+    
+	<hud_timer  x="852" y="15" width="157" height="67">
+		<text x="-15" y="23it" font="graffiti32" r="238" g="155" b="23" a="255" align="r"/>
+		<texture>ui_hud_frame_clock</texture>
+	</hud_timer>
+
+	<hud_timer_text x="852" y="80" width="157" height="67" light_anim="ui_slow_blinking_alpha" la_cyclic="1" la_texture="0" la_text="1" la_alpha="1">
+		<text x="0" y="0" font="graffiti22" r="240" g="217" b="182" a="255" align="c"/>
+	</hud_timer_text>
+
+	<hud_timer_2  x="852" y="15" width="173" height="74" stretch="1">
+		<text x="-15" y="23it" font="graffiti32" r="238" g="155" b="23" a="255" align="r"/>
+		<texture>ui_hud_frame_clock</texture>
+	</hud_timer_2>
+	
+	<hud_timer_text_2 x="916" y="40" width="157" height="67" light_anim="ui_slow_blinking_alpha" la_cyclic="1" la_texture="0" la_text="1" la_alpha="1">
+		<text x="0" y="0" font="graffiti32" r="240" g="217" b="182" a="255"/>
+	</hud_timer_text_2>
+
+	<sleep_001  x="20" y="20" width="984" height="728">
+		<texture x="0" y="0" width="984" height="728">car\trabantnoise</texture>
+	</sleep_001>
+
+	<controller_fx  x="0" y="0" width="1024" height="768" stretch="1">
+		<texture>act\act_controller_hit</texture>
+	</controller_fx>
+
+	<controller_fx2  x="0" y="0" width="1024" height="768" stretch="1">
+		<texture>act\act_controller_hit1</texture>
+	</controller_fx2>
+	
+	<monster_claws  x="512" y="150" width="512" height="512" alignment="c" stretch="1" heading="1" light_anim="monster_claws" la_alpha="1" la_cyclic="0">
+		<texture>controller\controller_blood_01</texture>
+	</monster_claws>
+	
+	<main_task  x="235" y="120" width="554" height="60" complex_mode="1">
+		<text align="c" font="graffiti32"  r="240" g="217" b="182" a="255"/>
+	</main_task>
+
+	<secondary_task  x="235" y="180" width="554" height="60" complex_mode="1" light_anim="ui_tesk_description" la_alpha="1" la_text="1" la_cyclic="0">
+		<text align="c" font="graffiti22"  r="240" g="217" b="182" a="200"/>
+	</secondary_task>
+
+	<cs_psy_danger  x="200" y="10" width="600" height="50" complex_mode="1">
+		<text font="graffiti22"  r="240" g="217" b="182" a="255" align="c"/>
+	</cs_psy_danger>
+	<cs_radiation_danger  x="200" y="60" width="600" height="50" complex_mode="1">
+		<text font="graffiti22"  r="240" g="217" b="182" a="255" align="c"/>
+	</cs_radiation_danger>
+	
+	<game_saved  x="100" y="730" width="800" height="30">
+		<text font="graffiti22"  r="240" g="217" b="182" a="255" align="c"/>
+	</game_saved>
+
+	<autosave  x="100" y="700" width="800" height="30">
+		<text font="graffiti22"  r="240" g="217" b="182" a="255" align="c">st_autosave</text>
+	</autosave>
+	
+	<item_used  x="100" y="730" width="800" height="30">
+		<text font="graffiti22"  r="240" g="217" b="182" a="255" align="c"/>
+	</item_used>
+
+	<gun_jammed x="200" y="70" width="600" height="50" ttl="3">
+		<text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">gun_jammed</text>
+	</gun_jammed>
+	
+	<cant_walk x="200" y="650" width="600" height="30" ttl="3">
+		<text font="graffiti22"  r="240" g="217" b="182" a="255" align="c">cant_walk</text>
+	</cant_walk>
+  
+  <cant_jump x="200" y="650" width="600" height="30" ttl="3">
+    <text font="graffiti22"  r="240" g="217" b="182" a="255" align="c">cant_jump</text>
+  </cant_jump>
+  
+	<cant_walk_weight x="20" y="650" width="600" height="30" ttl="3">
+		<text font="graffiti22"  r="240" g="217" b="182" a="255" align="c">cant_walk_weight</text>
+	</cant_walk_weight>
+
+  <no_backpack  x="100" y="100" width="800" height="60">
+    <text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_no_backpack</text>
+  </no_backpack>
+  
+  <not_enough_room_backpack  x="100" y="100" width="800" height="60">
+    <text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_not_enough_room_backpack</text>
+  </not_enough_room_backpack>
+
+	<not_enough_stuff_other  x="265" y="100" width="480" height="98" complex_mode="1">
+		<text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_not_enough_stuff</text>
+	</not_enough_stuff_other>
+	
+	<not_enough_money_mine  x="100" y="100" width="800" height="60">
+		<text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_not_enough_money</text>
+	</not_enough_money_mine>
+
+	<not_enough_money_other  x="100" y="100" width="800" height="60">
+		<text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_not_enough_money_npc</text>
+	</not_enough_money_other>
+	
+	<not_interested_item_other  x="110" y="100" width="800" height="60">
+		<text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_not_interested_item_other</text>
+	</not_interested_item_other>
+
+	<not_interested_section_other  x="105" y="100" width="800" height="60">
+		<text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_not_interested_section_other</text>
+	</not_interested_section_other>
+
+	<not_interested_broken_item_other  x="110" y="100" width="800" height="60">
+		<text font="graffiti32"  r="240" g="217" b="182" a="255" align="c">st_not_interested_broken_item_other</text>
+	</not_interested_broken_item_other>
+
+  <karlan_not_trade_custom_reason  x="260" y="100" width="480" height="98" complex_mode="1">
+    <text font="graffiti32"  r="240" g="217" b="182" a="255" align="c"/>
+	</karlan_not_trade_custom_reason>
+	
+  <max_ping_warn_1 x="512" y="300" width="360" height="64" alignment="c" ttl="8">
+    <texture x="0" y="0" width="360" height="64" a="30">ui\ui_cm_connection_error</texture>
+    <text x="80" y="50" font="graffiti32" r="238" g="155" b="23" a="255"/>
+  </max_ping_warn_1>
+  <max_ping_warn_2 x="512" y="300" width="360" height="64" alignment="c" ttl="8">
+    <texture x="0" y="0" width="360" height="64" a="64">ui\ui_cm_connection_error</texture>
+    <text x="80" y="50" font="graffiti32" r="238" g="155" b="23" a="255"/>
+  </max_ping_warn_2>
+  <max_ping_warn_3 x="512" y="300" width="360" height="64" alignment="c" ttl="8">
+    <texture x="0" y="0" width="360" height="64" a="160">ui\ui_cm_connection_error</texture>
+    <text x="80" y="50" font="graffiti32" r="238" g="155" b="23" a="255"/>
+  </max_ping_warn_3>
+  <max_ping_warn_4 x="512" y="300" width="360" height="64" alignment="c" ttl="8">
+    <texture x="0" y="0" width="360" height="64" a="255">ui\ui_cm_connection_error</texture>
+    <text x="80" y="50" font="graffiti32" r="238" g="155" b="23" a="255"/>
+  </max_ping_warn_4>
+
+
+</header>

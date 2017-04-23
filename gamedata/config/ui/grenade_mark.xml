@@ -1,0 +1,8 @@
+<w>
+	<mark x="192" y="64" width="640" height="640" stretch="1" heading="1">
+		<texture a="240">ui\ui_hud_grenade_mark</texture>
+	</mark>
+	<alarm_spot x="512" y="48" width="64" height="64" alignment="c" stretch="1" xform_anim="map_spot_new_xform" xform_anim_cyclic="1">
+		<texture a="160" r="248" g="173" b="0">ui_frame_error_sign_red</texture>
+	</alarm_spot>
+</w>

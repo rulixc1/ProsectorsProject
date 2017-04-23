@@ -1,0 +1,13 @@
+[inventory_box]
+$spawn              = "devices\inventory_box"
+class               = O_INVBOX
+cform               = skeleton
+visual              = equipments\item_rukzak
+radius              = 1
+script_binding      = bind_inventory_box.init
+box_volume          = 50
+
+[inventory_box_for_backpack]:inventory_box
+$spawn              = "devices\inventory_box_for_backpack"
+script_binding      = bind_inventory_box.init
+backpack_mode       = true

@@ -1,0 +1,226 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;    MEDICAL
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;--//------------------------
+; ANTIRADS
+;--//------------------------
+[antirad_base]:eatable_item
+class                        = II_ANTIR
+visual                       = equipments\item_antirad.ogf
+description                  = enc_equipment_medi_antirad1
+
+inv_name                     = Antirad
+inv_name_short               = Antirad
+inv_weight                   = 0.1
+inv_volume                   = 0.06
+
+inv_grid_x                   = 23
+inv_grid_y                   = 3
+cost                         = 300
+
+use_sound                    = interface\inv_pills
+;--// скорость - 10 апдейтов в секунду
+boost_time                   = 10.0
+boost_radiation_restore      = 0.01
+
+[antirad]:antirad_base
+$spawn                       = "food and drugs\antirad"
+
+;--//------------------------
+; MEDKITS
+;--//------------------------
+[medkit_base]:eatable_item
+class                        = II_MEDKI
+inv_weight                   = 0.3
+inv_volume                   = 0.18
+use_sound                    = interface\inv_medkit
+attach_angle_offset          = 1.78, 3.22, -1.58	; y,z,x
+attach_position_offset       = 0.176, -0.006, 0.058
+attach_bone_name             = bip01_r_hand
+detach_on_death_prb          = 0.9
+
+[medkit]:medkit_base
+$spawn                       = "food and drugs\medkit"
+visual                       = equipments\item_aptechka.ogf
+description                  = enc_equipment_medi_medkit1
+inv_name                     = Medkit
+inv_name_short               = Medkit
+inv_grid_x                   = 20
+inv_grid_y                   = 3
+cost                         = 150
+
+boost_time                   = 10.0
+boost_health_restore         = 0.01
+boost_radiation_restore      = 0.0
+boost_bleeding_restore       = 0.005
+
+[medkit_army]:medkit_base
+$spawn                       = "food and drugs\medkit_army"
+visual                       = equipments\item_aptechka3.ogf
+inv_name                     = Medkit_army
+inv_name_short               = Medkit_army
+description                  = enc_equipment_medi_medkit2
+inv_grid_x                   = 21
+inv_grid_y                   = 3
+cost                         = 220
+
+boost_time                   = 5.0
+boost_health_restore         = 0.02
+boost_radiation_restore      = 0.0
+boost_bleeding_restore       = 0.02
+
+[medkit_scientic]:medkit_base
+$spawn                       = "food and drugs\medkit_scientic"
+visual                       = equipments\item_aptechka2.ogf
+description                  = enc_equipment_medi_medkit3
+inv_name                     = Medkit_scientific
+inv_name_short               = Medkit_scientific
+inv_grid_x                   = 22
+inv_grid_y                   = 3
+cost                         = 200
+
+boost_time                   = 10.0
+boost_health_restore         = 0.01
+boost_radiation_restore      = 0.01
+boost_bleeding_restore       = 0.005
+
+;--//------------------------
+; BANDAGES
+;--//------------------------
+[bandage_base]:eatable_item
+class                        = II_BANDG
+visual                       = equipments\item_bandage.ogf
+description                  = enc_equipment_medi_bandage1
+
+inv_name                     = bandage
+inv_name_short               = bandage
+inv_weight                   = 0.1
+inv_volume                   = 0.05
+
+inv_grid_x                   = 30
+inv_grid_y                   = 3
+cost                         = 20
+
+boost_time                   = 5.0
+boost_bleeding_restore       = 0.02
+
+use_sound                    = interface\inv_bandage
+; attach parameters
+attach_angle_offset          = 1.57, 3.14, -1.7
+attach_position_offset       = 0.11, 0.06, 0.05
+attach_bone_name             = bip01_r_hand
+detach_on_death_prb          = 0.6
+
+[bandage]:bandage_base
+$spawn                       = "food and drugs\bandage"
+
+;--//------------------------
+; DRUGS
+;--//------------------------
+[drug_base]:eatable_item
+class                        = II_MEDKI ; Karlan: поведем от аптечки, иатабельные классы сейчас абсолютно не принципиальны
+inv_name                     = DrugBase
+inv_name_short               = DrugBase
+description                  = DrugBaseDescr
+inv_grid_width               = 1
+inv_grid_height              = 1
+use_sound                    = interface\inv_pills
+; attach parameters (for pills)
+attach_angle_offset          = -0.31, -0.084, 1.41
+attach_position_offset       = 0.021, -0.0282, 0.067
+attach_bone_name             = bip01_l_finger2
+detach_on_death_prb          = 0.8
+
+[drug_booster]:drug_base
+$spawn                       = "food and drugs\drug_booster"
+visual                       = equipments\medical\drug_booster.ogf
+inv_name                     = st_drug_booster
+inv_name_short               = st_drug_booster
+description                  = st_drug_booster_descr
+
+inv_grid_x                   = 29
+inv_grid_y                   = 3
+cost                         = 200
+inv_weight                   = 0.33
+inv_volume                   = 0.42
+
+boost_time                   = 300.0
+boost_max_weight             = 20.0
+use_sound                    = interface\inv_softdrink
+
+[drug_coagulant]:drug_base
+$spawn                       = "food and drugs\drug_coagulant"
+visual                       = equipments\medical\drug_coagulant.ogf
+inv_name                     = st_drug_coagulant
+inv_name_short               = st_drug_coagulant
+description                  = st_drug_coagulant_descr
+
+inv_grid_x                   = 27
+inv_grid_y                   = 3
+cost                         = 200
+inv_weight                   = 0.01
+inv_volume                   = 0.02
+
+boost_time                   = 20.0
+boost_bleeding_restore       = 0.03
+
+[drug_psy_blockade]:drug_base
+$spawn                       = "food and drugs\drug_psy_blockade"
+visual                       = equipments\medical\drug_psy_blockade.ogf
+inv_name                     = st_drug_psy_blockade
+inv_name_short               = st_drug_psy_blockade
+description                  = st_drug_psy_blockade_descr
+
+inv_grid_x                   = 24
+inv_grid_y                   = 3
+cost                         = 550
+inv_weight                   = 0.01
+inv_volume                   = 0.02
+
+boost_time                   = 60.0
+boost_telepat_protection     = 0.05
+
+[drug_antidot]:drug_base
+$spawn                       = "food and drugs\drug_antidot"
+visual                       = equipments\medical\drug_antidot.ogf
+inv_name                     = st_drug_antidot
+inv_name_short               = st_drug_antidot
+description                  = st_drug_antidot_descr
+
+inv_grid_x                   = 25
+inv_grid_y                   = 3
+cost                         = 300
+inv_weight                   = 0.01
+inv_volume                   = 0.02
+
+boost_time                   = 60.0
+boost_chemburn_protection    = 0.1
+
+[drug_radioprotector]:drug_base
+$spawn                       = "food and drugs\drug_radioprotector"
+visual                       = equipments\medical\drug_radioprotector.ogf
+inv_name                     = st_drug_radioprotector
+inv_name_short               = st_drug_radioprotector
+description                  = st_drug_radioprotector_descr
+
+inv_grid_x                   = 26
+inv_grid_y                   = 3
+cost                         = 300
+inv_weight                   = 0.01
+inv_volume                   = 0.02
+
+boost_time                   = 60.0
+boost_radiation_protection   = 0.015
+
+[drug_anabiotic]:drug_base
+$spawn                       = "food and drugs\drug_anabiotic"
+visual                       = equipments\medical\drug_anabiotic.ogf
+inv_name                     = st_drug_anabiotic
+inv_name_short               = st_drug_anabiotic
+description                  = st_drug_anabiotic_descr
+
+inv_grid_x                   = 28
+inv_grid_y                   = 3
+cost                         = 1000
+inv_weight                   = 0.01
+inv_volume                   = 0.02

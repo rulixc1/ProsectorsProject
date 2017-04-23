@@ -1,0 +1,82 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : mob_jump.script
+ Description: fake death for zombie
+ Copyright  : 200? © GSC Game World
+ Author(s)  : Jim
+ Edited     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local STATE_START_LOOK      = 1
+local STATE_WAIT_LOOK_END   = 2
+local STATE_JUMP            = 3
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "mob_jump"
+function mob_jump:__init(obj, storage)
+    self.object = obj
+    self.st        = storage
+end
+function mob_jump:reset_scheme()
+    printf("Jump: reset_scheme: %s", self.object:name())
+    obj_capture(self.object, true)
+    self.st.signals     = {}
+    self.jump_path      = nil
+    if self.st.jump_path_name then
+        self.jump_path = patrol(self.st.jump_path_name)
+        self.jump_path = self.jump_path:point(0)
+    elseif self.st.jump_on_obj then
+        self.jump_path = tonumber(self.st.jump_on_obj) and sim:story_object(self.st.jump_on_obj) or sim:object(self.st.jump_on_obj)
+        self.jump_path = self.jump_path.position
+    end
+    assert(self.jump_path, "object '%s': unable to find jump_path '[not defined]' on the map", self.object:name())
+    self.point = vector().add(self.jump_path, self.st.offset)
+    self.state_current = STATE_START_LOOK
+end
+function mob_jump:update(delta)
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then
+        return
+    end
+    if self.state_current == STATE_JUMP then 
+        self.object:jump(self.point, self.st.ph_jump_factor)
+        self.st.signals["jumped"] = true
+        obj_release(self.object)
+    end
+    if self.object:action() then return end
+    if self.state_current == STATE_START_LOOK then
+        action(self.object, look(look.point, self.point), cond(cond.look_end))
+        self.state_current = STATE_WAIT_LOOK_END
+    elseif self.state_current == STATE_WAIT_LOOK_END then
+        self.state_current = STATE_JUMP
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    xr_logic.subscribe_action_for_events(npc, storage, mob_jump(npc, storage))
+end
+function set_scheme(npc, ini, scheme, section, gulag_name)
+    local st            = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+    st.logic            = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+    st.jump_path_name   = cfg_get_string(ini, section, "path_jump")
+    st.jump_on_obj      = cfg_get_string(ini, section, "obj_jump")
+    st.ph_jump_factor   = cfg_get_number(ini, section, "ph_jump_factor",    npc, false, 1.8)
+    local offset_str    = cfg_get_string(ini, section, "offset") 
+    printf('offset_str = ["%s"]', offset_str )
+    local elems         = parse_names(offset_str)
+    st.offset           = vector():set(tonumber(elems[1]), tonumber(elems[2]), tonumber(elems[3]))
+    printf('set_scheme: offset vector: [%s]', st.offset)
+    if not ini:line_exist( section, "on_signal" ) then
+        abort("Bad jump scheme usage! `on_signal` line must be specified")
+    end 
+end
+--//-----------------------------------------------------------------------------------------------

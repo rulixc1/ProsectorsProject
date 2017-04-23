@@ -1,0 +1,178 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : bind_restrictor.script
+ Description: Space restrictor binder
+ Copyright  : 2004 © GSC Game World
+ Author     : „угай јлександр
+ Update     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local updatable_binders = {} --// биндеры, которые требуют обновлений (update)
+local arena_zones = {}
+
+local loaded = false
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-------------------------
+function presets()
+    assert(loaded, 'not init!')
+    
+    event("actor_update"):register(actor_update, {__period = 200})
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+function actor_update(e)
+    for _, v in pairs(updatable_binders) do
+        v:update(e.delta)
+    end
+end
+--//-----------------------------------------------------------------
+function bind(obj)
+    local new_binder = restrictor_binder(obj)
+    obj:bind_object(new_binder)
+end
+--//-----------------------------------------------------------------
+class "restrictor_binder" (object_binder)
+--//-----------------------------------------------------------------
+function restrictor_binder:__init(obj) super(obj)
+    self.initialized = false
+    self.loaded = false
+end
+----------------------------------------------------------------------------------------------------------------------
+function restrictor_binder:reinit()
+    self.ini = xr_logic.get_customdata_or_ini_file(self.object, "<customdata>")
+
+    self.is_arena = self.ini:section_exist("arena_zone")
+    if self.is_arena then
+        log('<%s> is arena', self.object:name())
+        self.saved_obj = {}
+        arena_zones[self.object:name()] = self
+    end
+    
+    db.storage[self.object:id()] = {}
+    self.st     = db.storage[self.object:id()]
+    
+    if has_data() then self:load() end --// Karlan: такой мерзкий хак дл€ загрузки данных :)
+end
+----------------------------------------------------------------------------------------------------------------------
+function restrictor_binder:net_spawn(server_object)
+    if not object_binder.net_spawn(self, server_object) then return false end
+    local obj = self.object
+    db.add_zone(obj)
+    --// не регистрироваться на апдейты, если у объекта в customdata нет секции logic вообще
+    --// Karlan->Karlan: здесь все же следует зан€тс€ оптимизацией и снимать с апдейта рестрикторы с единственной ниловой секцией в active (чекать кондлист), если нилова€ секци€ проставл€етс€ в общих ключах то снимать с апдейта его разумеетс€ не нужно
+    if self.ini:section_exist("logic") then
+        updatable_binders[obj:id()] = self
+    end
+    if self.is_arena then
+        self.object:set_callback(callback.zone_enter, self.on_enter, self)
+        self.object:set_callback(callback.zone_exit, self.on_exit, self)
+    end
+    log('restrictor_binder:net_spawn:[%s]', obj:name())
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+function restrictor_binder:net_destroy()
+    local obj, obj_id = self.object, self.object:id()
+    local st = db.storage[obj_id]
+    if st.active_scheme then
+        xr_logic.issue_event(obj, st[st.active_scheme], "net_destroy")
+    end
+    db.del_zone(obj)
+    updatable_binders[obj_id] = nil
+    db.storage[obj_id] = nil
+    if self.is_arena then
+        obj:set_callback(callback.zone_enter, nil)
+        obj:set_callback(callback.zone_exit, nil)
+    end
+    log('restrictor_binder:net_destroy:[%s]', obj:name())
+end
+----------------------------------------------------------------------------------------------------------------------
+--// вызываетс€ из обновлени€ актера!
+function restrictor_binder:update(delta)
+    -- log('Update restrictor <%s> %s', self.object, delta)
+    if not self.initialized then
+        self.initialized = true
+        xr_logic.initialize_obj(self.object, self.st, self.loaded, actor, modules.stype_restrictor)
+    end
+    if self.st.active_section then
+        xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "update", delta)
+    end
+end
+----------------------------------------------------------------------------------------------------------------------
+function restrictor_binder:net_save_relevant()
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+--// Karlan->ALL: !!! «ƒ≈—№ »—ѕќЋ№«ќ¬ј“№ ѕј ≈“џ  ј“≈√ќ–»„≈— » Ѕ≈—ѕќЋ≈«Ќќ !!!
+function restrictor_binder:save()
+    if not self.object then return warning("save:object=NIL") end
+    log("save:RESTRICTOR=[%s]:[%s]", self.object, ">")
+    write_pstor('save_flag', true, self.object)
+    if self.is_arena then
+        local data = get_data()
+        data.saved_obj = self.saved_obj
+    else
+        SAVE_OBJECT(self.object)
+    end
+end
+----------------------------------------------------------------------------------------------------------------------
+function restrictor_binder:load()
+    if not self.object then return warning("load:object=NIL") end
+    log("load:RESTRICTOR=[%s]:[%s]", self.object, ">")
+    if not read_pstor('save_flag', false, self.object) then return end --// дл€ того, чтобы не падала игра, когда часть рестрикторов еще не сохран€лась, но общий массив уже создан, такие моменты бывают при загрузке на вторую и последующие локации, сила эмул€ции :P
+    if self.is_arena then
+        local data = get_data()
+        self.saved_obj = data.saved_obj
+        clear_data()
+    else
+        LOAD_OBJECT(self.object)
+    end
+end
+----------------------------------------------------------------------------------------------------------------------
+--// callback на вход в зону. Ќужно регистрить все объекты, кроме игрока.
+--// так как есть глюк, то этот коллбек вызываетс€ и на вход и на выход из скриптовой зоны --// Karlan: ага, глюк :D
+function restrictor_binder:on_enter(zone, obj)
+    local obj_id = obj and obj:id()
+    if obj:clsid() == clsid.actor then return end
+    self.saved_obj[obj:id()] = true
+end
+--//-----------------------------------------------------------------
+function restrictor_binder:on_exit(zone, obj)
+    local obj_id = obj and obj:id()
+    if obj:clsid() == clsid.actor then return end
+    self.saved_obj[obj:id()] = nil
+end
+--//-----------------------------------------------------------------
+function restrictor_binder:purge_items()
+    for k,v in pairs(self.saved_obj) do
+        local obj = sim:object(k)
+        local obj_id = get_id(obj)
+        if obj and obj_id ~= actor_id then
+            sim:release(obj, true)
+            self.saved_obj[obj_id] = nil
+        end
+    end
+end
+--//-----------------------------------------------------------------
+function purge_arena_items(name)
+    local arena_zone = arena_zones[name]
+    if arena_zone then
+        arena_zone:purge_items()
+    end
+end
+----------------------------------------------------------------------------------------------------------------------

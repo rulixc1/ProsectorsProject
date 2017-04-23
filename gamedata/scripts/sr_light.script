@@ -1,0 +1,131 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : sr_light.script
+ Description:
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Rulix (по материалам GSC)
+--]] ----------------------------------------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+
+local ligth_luminocity = 0.1
+local attach_luminocity = 0.2
+local attach_inertia = 20000
+local self_ligth_value = 0.25
+
+local light_zones = {}
+---------------------------------------------------------------------------------------------------------------------
+class "action_light"
+function action_light:__init (obj, storage)
+    self.object = obj
+    self.st = storage
+    self.active = false
+    self.id = obj:id()
+end
+function action_light:reset_scheme()
+    light_zones[self.id] = self
+end
+function action_light:update(delta)
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then
+        self.active = false
+        light_zones[self.id] = nil
+    else
+        self.active = true
+    end
+end
+function action_light:check_stalker(stalker)
+    if self.active and self.object:inside(stalker:center()) then
+        return self.st.light
+    end
+end
+---------------------------------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    local new_action = action_light (npc, storage)
+    xr_logic.subscribe_action_for_events(npc, storage, new_action)
+end
+
+function set_scheme(npc, ini, scheme, section)
+    local st = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+    st.logic = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+    st.light = cfg_get_bool (ini, section, "light_on", false)
+end
+---------------------------------------------------------------------------------------------------------------------
+function check_light(stalker,stor)
+	local torch = stalker:item_in_slot(TORCH_SLOT)
+	if not torch then return end
+
+	--' Проверка оверрайда
+	local light = stor.overrides and stor.overrides.light
+
+	--' Проверка по лайтзонам
+	if light == nil then
+		for k,v in pairs(light_zones) do
+			local check = v:check_stalker(stalker)
+			if check ~= nil then
+				light = check
+				break
+			end
+		end
+	end
+
+	if light ~= nil then
+		torch:enable_attachable_item(light)
+		torch:get_torch():enable(light)
+		return
+	end
+
+	local attached, lum = torch:attachable_item_enabled()
+	local enemy = stalker:best_enemy()
+	if enemy and not enemy:is_monster() then
+		lum = enemy:get_luminocity()
+	else
+		lum = stalker:get_luminocity()
+		enemy = nil
+	end
+
+	local attach = attached and (stor.ai.torch_at or 0) > time_global() or lum < attach_luminocity
+	if attached and torch:get_torch().on then
+		lum = lum - self_ligth_value
+	end
+
+	if attach and lum < ligth_luminocity then
+		light = true
+		--' Экшн управляет светом
+		local action = stor.planner:initialized() and stor.planner:current_action()
+		if action and action.enable_torch ~= nil then
+			light = action.enable_torch
+		--' Фонарики должны быть выключены в бою. Но если в бою идет поиск врага - то включены.
+		elseif enemy and stor.combat_planner:current_action_id() ~= stalker_ids.action_search_enemy then
+			light = false
+		end
+	end
+
+	if _DEBUG_ and debug_ai then
+		local tnpc = debug_ai and debug_ai.get_nearest_npc(device().cam_pos,20,true)
+		if tnpc and tnpc:id() == stalker:id() then
+			log("get_lum[%s]: %s (on %s) (enemy %s) (actor %s)",stalker:name(),lum,torch:get_torch().on,enemy~=nil,actor:get_luminocity())
+		end
+	end
+
+	if attached ~= attach then
+		if not light then
+			if actor:see(stalker) then
+				torch:get_torch():enable(false)
+				return
+			end
+		end
+		log("attach_torch[%s]: %s ",stalker:name(),attach)
+		torch:enable_attachable_item(attach)
+	end
+
+	if attach then
+		torch:get_torch():enable(light==true)
+		if lum < attach_luminocity then
+			stor.ai.torch_at = time_global() + attach_inertia
+		end
+	end
+end
+
+function force_update_light(stalker)
+	local st = db.storage[stalker:id()]
+--	st.ai.torch_at = 0
+	check_light(stalker,st)
+end

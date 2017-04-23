@@ -1,0 +1,136 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : mob_home.script 
+ Description: mob run around point
+ Copyright  : 2005 © GSC
+ Authors    : Jim, Haron
+ Update     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--// Karlan->ALL: связку через capture здесь не сделал намеренно, так как это больше движковая схема и изначально здесь использовались движковые методы, поэтому в скриптовой логике этот момент необходимо учитывать когда это бывает нужно
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local def_min_radius = 10
+local def_mid_radius = 40
+local def_max_radius = 80
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "mob_home"
+function mob_home:__init(obj, storage)
+    self.object = obj
+    self.st     = storage
+    self.timer  = 0
+    self.block  = 0
+end
+function mob_home:reset_scheme()
+    m_monsters.set_state(self.object, self.st.state)
+    if not is_string(self.st.home) and not is_boolean(self.st.gulag_point) and not self.st.obj_point then return abort('mob_home is not exist path_home or gulag_point') end
+    local ptr, path_info
+    if is_string(self.st.home) then
+        ptr = patrol(self.st.home)
+        path_info = parse_waypoint_data(self.st.home, ptr:flags(0), ptr:name(0))
+    end
+    --// Karlan: флагу пути отдадим высший приоритет
+    local minr = tonumber(is_table(path_info) and path_info.minr or false) or tonumber(self.st.home_min_radius) or def_min_radius
+    local midr = tonumber(is_table(path_info) and path_info.midr or false) or tonumber(self.st.home_mid_radius) or def_mid_radius
+    local maxr = tonumber(is_table(path_info) and path_info.maxr or false) or tonumber(self.st.home_max_radius) or def_max_radius
+
+    --// check min and max radius
+    if minr > maxr then
+        warning('mob_home: minr MUST be < maxr (got: minr = %d, maxr = %d), CHANGE to minr, maxr = maxr, minr', minr, maxr)
+        minr, maxr = maxr, minr
+    end 
+    if midr <= minr or midr >= maxr then
+        midr = minr + (maxr - minr)/2
+    end
+    if self.st.gulag_point then
+        local smrttrn = sim:object(sim:object(self.object:id()).m_smart_terrain_id)
+        local lvid = smrttrn and smrttrn.m_level_vertex_id
+        self.object:set_home(lvid, minr, maxr, self.st.aggressive, midr)
+        if not self.object:action() then
+            action(self.object, move(move.run_fwd, lvid, smrttrn.position), cond(cond.move_end))
+        end
+    elseif self.st.obj_point then --// Karlan: поскольку есть метод set_name для серверных объектов, то сделаем возможность указать именной поинт
+        self.st.obj_point = tonumber(self.st.obj_point) or self.st.obj_point
+        local sobj = is_number(self.st.obj_point) and sim:story_object(self.st.obj_point) or sim:object(self.st.obj_point)
+        local lvid = sobj and sobj.m_level_vertex_id
+        self.object:set_home(lvid, minr, maxr, self.st.aggressive, midr)
+        --// TODO: как-тут возвращать - не ясно, наверное нужно сделать буффер (сохраняемый), и при отпускании монстра на охоту писать данные в буффер, затем здесь по нему уже давать пинка монстру в эти кординаты
+    elseif is_string(self.st.home) then
+        self.object:set_home(self.st.home, minr, maxr, self.st.aggressive, midr)
+        if not self.object:action() then
+            action(self.object, move(move.run_fwd, ptr:level_vertex_id(0), ptr:point(0)), cond(cond.move_end))
+        end
+    end
+end
+function mob_home:update(delta)
+    --// TODO: надо еще сделать проверку на то какой враг крутой, и если круче, чем моб, то не давать уйти в алайф, чтобы, допустим, две драных собаки не нагоняли мужика в экзе с фн
+    --// TODO: здесь еще можно сделать возврат в стойло при недоступности врага (на инвалидном вертексе или слишком большой диференс высоты)
+    if self.timer > 0 and self.timer < time_global() then --// возвращаем в стойло
+        self.timer = 0
+        self.block = time_global() + math.random(15000, 30000)
+        self:reset_scheme()
+        return
+    end
+    if self.timer ~= 0 then return end
+    --// Karlan->Karlan: попробовал отпускать только при реальном выходе врага за грани, но звери стали тупить в атаке хома, так что пока оставлем как есть
+    if mob_alife_control(self.object, self.st.alife_mode) and self.block < time_global() then --// отпускаем на охоту
+        self:deactivate()
+        self.timer = time_global() + math.random(40000, 60000)
+        return
+    end
+    if not self.object:is_active_home() then --// по каким-то причинам наш моб затерялся в чужих степях, вернем в родные
+        self:reset_scheme()
+        return
+    end
+    -- local sound = self.object:get_sound_info() --// TODO:
+    -- if sound and sound.danger ~= 0 then
+        -- self:deactivate()
+        -- self.timer = time_global() + math.random(40000, 60000)
+        -- action(self.object, move(move.run_fwd, sound.position, 0.2, move.force), cond(cond.move_end))
+    -- end
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then
+        return
+    end
+end
+function mob_home:hit_callback(obj, amount, local_direction, who, bone_index) --// если продолжаем войнушку, то не отвлекаем монстра
+    if self.timer ~= 0 then return end
+    if not mob_alife_control(self.object, self.st.alife_mode) then return end
+    self:deactivate()
+    self.timer = time_global() + math.random(40000, 60000)
+end
+function mob_home:deactivate()
+    if self.object:is_active_home() then
+        self.object:remove_home()
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    xr_logic.subscribe_action_for_events(npc, storage, mob_home(npc, storage))
+end
+--//-----------------------------------------------------------------------------------------------
+--// Set scheme
+--//-----------------------------------------------------------------------------------------------
+function set_scheme(npc, ini, scheme, section, gulag_name)
+    local st                = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+
+    st.logic               = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+    st.state               = m_monsters.get_state(ini, section, npc)
+    st.alife_mode          = cfg_get_mode      (ini, section, npc)
+    st.home                = cfg_get_string    (ini, section, "path_home",          npc, false, gulag_name)
+    st.gulag_point         = cfg_get_bool      (ini, section, "gulag_point",        npc, false, false)
+    st.obj_point           = cfg_get_string    (ini, section, "obj_point")
+    st.home_min_radius     = cfg_get_number    (ini, section, "home_min_radius",    npc, false)
+    st.home_mid_radius     = cfg_get_number    (ini, section, "home_mid_radius",    npc, false)
+    st.home_max_radius     = cfg_get_number    (ini, section, "home_max_radius",    npc, false)
+    st.aggressive          = cfg_get_bool      (ini, section, "aggressive",         npc, false, ini:line_exist( section, "aggressive_home"))
+end
+--//-----------------------------------------------------------------------------------------------

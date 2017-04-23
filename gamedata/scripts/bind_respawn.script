@@ -1,0 +1,55 @@
+--[[-----------------------------------------------------------------------------------------------
+ File       : bind_respawn.script
+ Description: Respawn binder
+ Copyright  : 2004 © GSC Game World
+ Author     : GSC Game World
+ Editors    : Karlan
+--]]-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+local _DEBUG_ = false
+local _DEBUG_GSC_ = _DEBUG_ and false
+--//-----------------------------------------------------------------
+function bind(obj)
+    local ini = obj:spawn_ini()
+    if ini then
+        obj:bind_object(respawn_binder(obj))
+    end
+end
+--//-----------------------------------------------------------------
+class "respawn_binder" (object_binder)
+--//-----------------------------------------------------------------
+function respawn_binder:__init(obj) super(obj)
+    printf("RESPAWN: [%s] binded", obj:name())
+end
+----------------------------------------------------------------------------------------------------------------------
+function respawn_binder:net_spawn(server_object)
+    if not object_binder.net_spawn( self, server_object ) then
+        warning("net_spawn:object=NIL")
+        return false
+    end
+    --// получить ссылку на настоящий серверный объект
+    self.se_respawn = server_object.id and alife():object(server_object.id)
+    if not self.se_respawn then
+        warning("net_spawn:se_respawn=NIL")
+        return false
+    end
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+function respawn_binder:update(delta)
+    if not self.se_respawn then
+        warning("update:self.object=NIL")
+        return
+    end
+    self.se_respawn:update_online()
+end
+----------------------------------------------------------------------------------------------------------------------
+function respawn_binder:net_destroy()
+    if not self.se_respawn then
+        warning("net_destroy:se_respawn=NIL")
+        return 
+    end
+end
+----------------------------------------------------------------------------------------------------------------------

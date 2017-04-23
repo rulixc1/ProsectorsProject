@@ -1,0 +1,508 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_talks.script
+ Description: ƒиалоги и функции дл€ диалогов
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--// TODO: все функции которые здесь вызывать тоже здесь, когда все стащу надо запротектировать будет
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local bye_phr_idx = nil --// локальное запоминание фразы чтобы она посто€нно не мен€лась
+local hide_weapon = false
+
+local info_item_hide = {
+	ui_car_body			= true,
+	ui_inventory		= true,
+	ui_pda				= true,
+}
+local info_item_restore = {
+	ui_car_body_hide	= true,
+	ui_inventory_hide	= true,
+	ui_pda_hide			= true,
+}
+--//--------------------
+local loaded = false
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = true --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-------------------------
+function presets()
+    assert(loaded, 'not init!')
+    
+    event("start_dialog"):register(start_dialog)
+    event("stop_dialog"):register(stop_dialog)
+    event("info_received"):register(proceed_info)
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Callbacks
+--//-----------------------------------------------------------------
+function start_dialog(e)
+    item_hide()
+end
+function stop_dialog(e)
+    item_restore()
+    bye_phr_idx = nil
+end
+function proceed_info(e)
+	if info_item_hide[e.info] then
+		item_hide()
+	elseif info_item_restore[e.info] then
+		item_restore()
+	end
+end
+
+function item_hide()
+    if not hide_weapon then
+        actor:hide_weapon()
+        actor:hide_weapon()
+--        actor:enable_slots(false)
+        hide_weapon = true
+    end
+end
+function item_restore()
+    if hide_weapon then
+--        actor:enable_slots(true)
+        actor:restore_weapon()
+        actor:restore_weapon()
+        hide_weapon = false
+    end
+end
+--//-----------------------------------------------------------------
+--// Functions
+--//-----------------------------------------------------------------
+function create_bye_phrase()
+    if not bye_phr_idx then
+        bye_phr_idx = math.random(4)
+        bye_phr_idx = bye_phr_idx-1
+    end
+    return game.translate_string("actor_break_dialog_"..bye_phr_idx)
+end
+function dialog_allowed(fs, ss, id)
+    log('dialog_allowed:dialog [%s]', id)
+    local npc = get_npc_talk(fs, ss)
+    if not is_table(db.storage[get_id(npc)].actor_dialogs) then return false end
+    return toboolean(table.index(db.storage[get_id(npc)].actor_dialogs, id))
+end
+function allow_break_dialog(fs, ss)
+    local npc = get_npc_talk(fs, ss)
+    return npc:profile_name() ~= 'osoznanie'
+end
+function break_dialog(fs, ss)
+    fs:stop_talk()
+    ss:stop_talk()
+end
+--//---------------------------------------------
+--// Relation functional
+--//---------------------------------------------
+--// Community functional
+function actor_in_dolg()
+    return actor:character_community() == "dolg"
+end
+function actor_not_in_dolg()
+    return not actor_in_dolg()
+end
+function actor_set_dolg() actor:set_character_community("dolg", 0, 0) end
+function actor_set_freedom() actor:set_character_community("freedom", 0, 0) end
+--//---------------------------------------------
+--// Wounded functional
+--//---------------------------------------------
+function is_wounded(fs, ss)
+    local npc = get_npc_talk(fs, ss)
+    local wm = ai_wounded.get_wound_manager(npc)
+    if wm and wm.can_use_medkit then return false end
+    return ai_wounded.is_wounded(npc)
+end
+function is_not_wounded(fs, ss)
+    return not is_wounded(fs, ss)
+end
+function allow_wounded_dialog(fs, ss, id)
+    local npc = get_npc_talk(fs, ss)
+    return db.storage[npc:id()].wounded and (db.storage[npc:id()].wounded.help_dialog == id) 
+end
+function actor_have_medkit()
+    return actor:has_list_objects(ai_wounded.help_medkits, 2)
+end
+--//---------------------------------------------
+--// Has stuff functional
+--//---------------------------------------------
+function has_money(amount, fs, ss)
+    local npc = actor
+    if fs then npc = get_npc_talk(fs, ss) end
+    return npc:money() >= amount
+end
+--//---------------------------------------------
+--// Relocate functional
+--//---------------------------------------------
+local get_relocate_partner = function(obj) --// функци€ сделана дл€ возможности использовани€ нижеприведенных функций НЕ ТОЛЬКО в диалогах
+    if not is_userdata(obj) or get_id(obj) == actor_id then
+        if PROSECTORS_DEBUG then warning('INVALID RELOCATE PARTNER, trying fix...') end
+        assert(actor:is_talking(), 'Actor does not talk, partner is <NOT_Argument>, must check arguments') --// Karlan: а вот это уже критично, так как Кашпировские в отпуске
+        return level.get_talker() --// Karlan: теперь в разговоре вообще пофигу на пор€док аргументов, в диалоге функци€ нам всегда вернет нужного нам собеседника :)
+    end
+    return obj
+end
+function relocate_stuff(fs, ss, stuff, type, amount_rr, cop_style, hide) --// Karlan: это универсальна€ оболочка дл€ предметов и денег
+    -- assert((is_string(stuff) or is_table(stuff) or is_number(stuff)), [[bad argument #3 to relocate_stuff (table or string or number excepted, got %s)]], type(stuff))
+    local npc = get_npc_talk(fs, ss)
+    if is_string(stuff) or is_table(stuff) then
+        relocate_item_sections(npc, stuff, type, amount_rr, cop_style, hide)
+    else
+        relocate_money(npc, stuff, type, amount_rr, cop_style, hide)
+    end
+end
+function relocate_item(partner, obj, type, cop_style, hide) --// эту мы держим особн€ком
+    local npc = get_relocate_partner(partner)
+    if type == "in" then
+        npc:transfer_item(obj, actor)
+    elseif type == "out" then
+        actor:transfer_item(obj, npc)
+    end
+    if hide then return end
+    manager_news.relocate_item(type, obj, obj:is_ammo() and obj:get_ammo_box_curr() or 1, cop_style)
+end
+function relocate_item_sections(partner, section, _type, amount, cop_style, hide) --// Karlan: по хорошему надо добавить парсинг вс€ких массивов, а дл€ этого надо придумать как наиболее удобно исопльзовать такую функцию, затем уже реализовать
+    if is_table(section) then
+        for _,v in ipairs(section) do --// Karlan->Karlan: с ipairs иногда бывают проблемы, надо потестировать, но в релизе наверное стоит поставить pairs
+            assert(v.s, "v.s")
+            log('table fields: v.s = (%s)%s, v.m = (%s)%s, v.a = (%s)%s', type(v.s), v.s, type(v.m), v.m, type(v.a), v.a)
+            if is_table(v.s) then v.s = v.s[math.random(#v.s)] end
+            v.r = is_number(v.r) and v.r or 100
+            if math.random(100) < v.r then
+                if is_string(v.s) then
+                    relocate_item_section(partner, v.s, v.t or _type, v.a or amount or 1, v.c or cop_style, v.h or hide)
+                    if is_number(v.m) then --// Karlan: чтобы тонну массивов не плодить сделаем возможность комбинированной передачи
+                        relocate_money(partner, v.m, v.t or _type, v.rr or (is_boolean(amount) and amount or false), v.c or cop_style, v.h or hide)
+                    end
+                else
+                    relocate_money(partner, v.s, v.t or _type, v.rr or (is_boolean(amount) and amount or false), v.c or cop_style, v.h or hide)
+                end
+            end
+        end
+    else
+        relocate_item_section(partner, section, type, amount, cop_style, hide)
+    end
+end
+function relocate_item_section(partner, section, type, amount, cop_style, hide)
+    local npc = get_relocate_partner(partner)
+    amount = math.is_positive(amount) and amount or 1
+    for i=1, amount do
+        local obj
+        if type == "in" then
+            obj = npc:object(section)
+            if obj and IsQuestItem(obj) then
+                npc:transfer_item(obj, actor)
+            else
+                sim:create(section, actor:position(), actor:level_vertex_id(), actor:game_vertex_id(), actor_id)
+            end
+        elseif type == "out" then
+            actor:transfer_item(actor:object(section), npc)
+        end
+        if ammo_sections[section] then
+            if obj then
+                amount = (i==1 and amount>0) and obj:get_ammo_box_curr() or amount+obj:get_ammo_box_curr()
+            else
+                local bs = cfg_get_number(sini, section, 'box_size')
+                amount = tonumber(bs) and ((i==1 and amount>0) and bs or amount+bs) or amount
+            end
+        end
+    end
+    if hide then return end
+    manager_news.relocate_item(type, section, amount, cop_style)
+end
+function relocate_money(partner, amount, type, rr, cop_style, hide)
+    local npc = get_relocate_partner(partner)
+    if type == "in" then
+        if rr then
+            amount = (amount>npc:money()) and npc:money() or amount
+            npc:transfer_money(amount, actor)
+        else
+            actor:give_money(amount)
+        end
+    elseif type == "out" then
+        actor:transfer_money(amount, npc)
+    end
+    if hide then return end
+    manager_news.relocate_money(type, amount, cop_style)
+end
+--//---------------------------------------------
+--// Specific relocate functions
+--//---------------------------------------------
+function transfer_medkit(fs, ss)
+    local act, npc = get_actor_npc_talk(fs, ss)
+    local ts
+	for _,s in ipairs(ai_wounded.help_medkits) do
+		if act:has_object(s) then
+			ts = s
+			break
+		end
+	end
+	if not ts then
+		return
+	end
+    relocate_item_section(npc, ts, 'out')
+    ai_wounded.unlock_medkit(npc)
+    -- change_npc_goodwill(npc, act, 100) --// Karlan: ну пока хот€ бы и так
+    if npc:relation(act) ~= game_object.enemy then
+        npc:set_relation(game_object.friend, act)
+    end
+    act:change_character_reputation(10)
+end
+function give_treasure(treasure, npc, amount, type, rr, cop_style, hide)
+    manager_treasure.get_manager_treasure():give_treasure(treasure)
+    if is_number(amount) then
+        relocate_money(npc, amount, type, rr, cop_style, hide)
+    end
+end
+--//-----------------------------------------------------------------
+--// Dialog actions&preconditions
+--//-----------------------------------------------------------------
+--// локальные оболочки дл€ более удобной работы с функци€ми
+local hi = has_info --// bool
+local gi = give_info --// bool
+local di = disable_info --// bool
+local hm = has_money --// bool
+local ho = function(s, c, fs, ss) --// bool
+    local npc = actor
+    if is_userdata(fs) and is_userdata(ss) then
+        npc = get_npc_talk(fs, ss)
+    end
+    return npc:has_object(s, c or 1)
+end
+local eo = function(s, c)
+    c = c or 1
+    if ho(s, c) then
+        for i=1, c do actor:eat(actor:object(s)) end
+    end
+end
+local ris = function(fs, ss, section, type, amount, cop_style, hide) --// void
+    local npc = get_npc_talk(fs, ss)
+    relocate_item_section(npc, section, type, amount, cop_style, hide)
+end
+local riswi = function(info, fs, ss, section, type, amount, cop_style, hide) --// void
+    if hi(info) then return end
+    gi(info)
+    ris(fs, ss, section, type, amount, cop_style, hide)
+end
+local rm = function(fs, ss, amount, type, rr, cop_style, hide) --// void
+    local npc = get_npc_talk(fs, ss)
+    if rr and is_table(amount) then
+        amount = npc:money()/amount.divider
+    end
+    relocate_money(npc, amount, type, rr, cop_style, hide)
+end
+local rmwi = function(info, fs, ss, amount, type, rr, cop_style, hide) --// void
+    if hi(info) then return end
+    gi(info)
+    rm(fs, ss, amount, type, rr, cop_style, hide)
+end
+local rs = relocate_stuff --// void
+local gt = function(treasure, fs, ss, amount, type, rr, cop_style, hide) --// void
+    local npc = actor
+    if is_userdata(fs) and is_userdata(ss) then
+        npc = get_npc_talk(fs, ss)
+    end
+    give_treasure(treasure, npc, amount, type, rr, cop_style, hide)
+end
+local es = function(fs, ss, compare_sid)
+    local npc = get_npc_talk(fs, ss)
+    local sid = get_sid(npc)
+    return sid == compare_sid
+end
+--//---------------------------------------------
+--//---------------------------------------------
+--// Storyline&Original functions
+--//---------------------------------------------
+--//==============================
+--// escape_dialog.script
+--//==============================
+function trader_alredy_give_job()
+    return  (hi('agroprom_military_case') and not hi('agroprom_military_case_done'))    or (hi('escape_blockpost_case') and not hi('escape_blockpost_case_done')) or
+            (hi('tutorial_artefact_start') and not hi('tutorial_artefact_done'))        or (hi('tutorial_wounded_start') and not hi('esc_serious_talk'))
+end
+function bandits_die() return hi('esc_kill_bandits_quest_kill') and not hi('esc_kill_bandits_noquest_kill') end --// привалил бандитов по квесту
+function trader_dont_give_job() return not trader_alredy_give_job() end
+function trader_need_extra_job() return not hi('escape_blockpost_case') and hi('esc_return') end --// вернулс€
+function trader_give_extra_job() return hi('escape_blockpost_case') and not hi('escape_blockpost_case_done') end --// пошел за кейсом
+function not_final_job() return not hi('escape_blockpost_case_done') end --// кейс еще не припер
+function is_tutorial() return not hi('tutorial_end') end
+function is_not_tutorial() return hi('tutorial_end') end
+function tutorial_wounded_end() return hi('tutorial_wounded_start') and hi('tutorial_wounded_give_info') and not hi('esc_serious_talk') end
+function trader_dont_has_job() return not trader_need_military_case() and not trader_need_blockpost_box() end --// сидор нас послал либо на агропром за кейсом либо сюда за кейсом
+function trader_need_military_case() return hi('esc_serious_talk') and not hi('agroprom_military_case') end
+function trader_need_blockpost_box() return hi('tutorial_end') and hi('esc_trader_speak') and not hi('escape_blockpost_case') end
+function transfer_medikit_to_fox() gi('escape_fox_heal') end
+function give_weapon_to_actor(fs, ss) rs(fs,ss, {{s='wpn_pm'}, {s='wpn_knife'}, {s='ammo_9x18_fmj', a=math.random(5)}}, 'in') end
+function transfer_wolf_reward(fs, ss) ris(fs,ss, 'af_medusa', 'in') end
+function wolf_additional_reward(fs, ss) rs(fs,ss, {{s='medkit'}, {s='bandage'}, {s='ammo_12x70_buck', a=math.random(3)}, {s='wpn_fort'}, {s='grenade_f1', a=math.random(2)}}, 'in') end
+function have_blockpost_case() return ho('quest_case_01') end
+function give_blockpost_case(fs, ss) ris(fs,ss, 'quest_case_01', 'out') end
+function give_blockpost_case_reward(fs, ss) rm(fs,ss, 2000, 'in') end
+function wounded_give_flash(fs, ss) ris(fs,ss, 'esc_wounded_flash', 'in') end
+function have_wounded_flash() return ho('esc_wounded_flash') end
+function dont_have_wounded_flash() return not have_wounded_flash() end
+function give_wounded_flash(fs, ss) rs(fs,ss, {{s='esc_wounded_flash', t='out'}, {s=1500, t='in'}}) end
+function give_documents_reward(fs,ss) rm(fs,ss, 1000, 'in') end
+function give_reward_killers(fs,ss) rm(fs,ss, 2500, 'in') end
+function has_soldiers_bribe() return hm(500) end
+function give_soldiers_bribe(fs, ss) rm(fs,ss, 500, 'out') end
+function fox_pay_money(fs, ss) gt('esc_secret_truck_goods', fs,ss, 1500, 'in', true) end
+function run_tutorial_pda(fs, ss)
+    break_dialog(fs, ss)
+    game.start_tutorial('part_1_pda')
+end
+function wolf_precond_univ() return hi('esc_kill_bandits_quest_done') or (hi('tutorial_wounded_give_info') and not hi('esc_kill_bandits_quest_have')) end
+--//==============================
+--// garbage_dialogs.script
+--//==============================
+function has_dolg_bribe() return hm(500) end
+function give_dolg_bribe(fs, ss) rm(fs,ss, 500, 'out') end
+function hellcar_payment(fs, ss) rm(fs,ss, 2000, 'in') end
+function seryi_payment(fs, ss) rm(fs,ss, 2500, 'in') end
+function blokpost_pass() return actor_in_dolg() or hi('gar_free_pass') end
+--//==============================
+--// agroprom_dialog.script
+--//==============================
+function krot_give_flash(fs, ss) ris(fs,ss, 'krot_flash', 'in') end
+function give_krot_reward(fs,ss) rm(fs,ss, 2500, 'in') end
+--//==============================
+--// dialogs_darkvalley.script
+--//==============================
+function val_rob_actor_has_money() return hm(800) end
+function val_rob_actor_reloc_money(fs, ss) rm(fs,ss, 800, 'out') end
+function val_escort_reward(fs, ss) rs(fs,ss, {{s='wpn_addon_scope_dynamic_zoom', m=1300}}, 'in') end
+--//==============================
+--// bar_dialogs.script
+--//==============================
+function has_dolg_deposite() return hm(1000) end
+function give_dolg_deposite(fs, ss) rm(fs,ss, 1000, 'out') end
+function give_agroprom_documents(fs, ss) rs(fs,ss, {{s='quest_case_02', t='out'}, {s=5000, t='in'}}) end
+function barman_give_outfit(fs, ss) ris(fs,ss, 'stalker_outfit', 'in') end
+function have_darklab_documents() return ho('dar_document4') end --// относитьс€ на самом деле только к эскейпу
+function hasnt_darklab_documents() return not ho('dar_document4') end
+function give_darklab_documents(fs, ss) rs(fs,ss, {{s='dar_document4', t='out'}, {s=10000, t='in'}}) end
+function have_x16_documents() return ho('lab_x16_documents') end
+function give_x16_documents(fs, ss) rs(fs,ss, {{s='lab_x16_documents', t='out'}, {s=15000, t='in'}}) end
+function professor_for_resque(fs, ss) ris(fs,ss, 'bar_ecolog_flash', 'in') end
+function actor_have_research() return ho('bar_ecolog_flash') end
+function actor_transfer_research(fs, ss) ris(fs,ss, 'bar_ecolog_flash', 'out') if hi('bar_rescue_research_reward') then rm(fs,ss, 5000, 'in') end end
+function have_rg6() return ho('wpn_rg-6') end
+function dont_have_rg6() return not ho('wpn_rg-6"') or not hi("mil_svoboda_rg6_gain") end
+function give_rg6(fs, ss) ris(fs,ss, 'wpn_rg-6', 'out') end
+function enter_to_dolg(fs, ss) ris(fs,ss, 'dolg_scientific_outfit', 'in') end
+function have_hunters_toz() return ho('hunters_toz') end
+function give_hunters_toz(fs, ss) rs(fs,ss, {{s='hunters_toz', t='out'}, {s=4000, t='in', rr=true}}) end
+function has_money_for_informer_1() return hm(4000) end
+function give_money_for_informer_1(fs, ss) rm(fs,ss, 4000, 'out') end
+function has_money_for_informer_2() return hm(2000) end
+function give_money_for_informer_2(fs, ss) rm(fs,ss, 2000, 'out') end
+function has_money_for_informer_3() return hm(3500) end
+function give_money_for_informer_3(fs, ss) rm(fs,ss, 3500, 'out') end
+function arena_give_reward(fs, ss)
+    local m = 0
+    if hi('bar_arena_fight_1_reward') then m = 1000
+    elseif hi('bar_arena_fight_2_reward') then m = 2000
+    elseif hi('bar_arena_fight_3_reward') then m = 3000
+    elseif hi('bar_arena_fight_4_reward') then m = 4000
+    elseif hi('bar_arena_fight_5_reward') then m = 6000
+    elseif hi('bar_arena_fight_6_reward') then m = 8000
+    elseif hi('bar_arena_fight_7_reward') then m = 10000   
+    elseif hi('bar_arena_fight_8_reward') then m = 10000
+    end
+    rm(fs,ss, m, 'in')
+    gi('bar_arena_reset')    
+    bind_restrictor.purge_arena_items('bar_arena')
+end
+function arena_has_reward() return has_any_info_portions{'bar_arena_fight_1_reward', 'bar_arena_fight_2_reward', 'bar_arena_fight_3_reward', 'bar_arena_fight_4_reward', 'bar_arena_fight_5_reward', 'bar_arena_fight_6_reward', 'bar_arena_fight_7_reward', 'bar_arena_fight_8_reward'} end
+function arena_hasnt_reward() return not arena_has_reward() end
+function arena_rank_check_true()
+	if has_info('bar_arena_fight_6_done') or has_info('bar_arena_fight_3_done') then
+		if has_info('bar_arena_fight_3_done') and (actor:character_rank() > 300) and (not has_info('bar_arena_fight_6_done')) then
+			return true
+		end
+	elseif has_info('bar_arena_fight_6_done') and (actor:character_rank() > 600) then
+		return true 	
+	else 
+		return false
+	end
+end
+function arena_rank_check_false() return not arena_rank_check_true() end
+--//==============================
+--// yantar_dialog.script
+--//==============================
+function yantar_give_bad_psy_helmet(fs, ss) ris(fs,ss, 'bad_psy_helmet', 'in') end
+function yantar_give_good_psy_helmet(fs, ss) ris(fs,ss, 'good_psy_helmet', 'in') end
+function yantar_give_quest_artefact(fs, ss) riswi('yantar_ecolog_give_reward', fs,ss, 'af_cristall_flower', 'in') end
+--//==============================
+--// dialogs_yantar.script
+--//==============================
+function have_kruglov_flash() return ho('kruglov_flash') end
+function give_kruglov_flash(fs, ss) ris(fs,ss, 'kruglov_flash', 'out') end
+function give_ecolog_outfit(fs, ss) riswi('yan_ecolog_outfit_given', fs,ss, 'ecolog_outfit', 'in') end
+function yan_professor_talk_outfit() return not hi("bar_x16_documents_start") and (hi("bar_heli_scene_professor_die") or (hi("bar_rescue_research_done") and hi("yan_ecolog_outfit_given"))) end
+function yan_professor_task_x16_precond() return hi("bar_rescue_research_fail") or hi("bar_heli_scene_professor_die") end
+--//==============================
+--// dialogs_military.script
+--//==============================
+function mil_dolg_payment(fs, ss) rmwi('military_scull_give_reward_1', fs,ss, 4000, 'in') end
+function mil_dolg_payment2(fs, ss) rmwi('military_scull_give_reward_2', fs,ss, 8000, 'in') end
+function lukash_payment(fs, ss) rm(fs,ss, 7000, 'in') end
+function transfer_flash(fs,ss) ris(fs,ss, 'crazy_flash', 'out') end
+function set_freedom_enemy() relation_registry.set_community_goodwill ("freedom", actor_id, -5000) end
+function transfer_vodka(fs, ss) if ho("vodka") then ris(fs,ss, 'vodka', 'out') end end
+function have_a_vodka() return ho('vodka') end
+function commander_transfer(fs, ss) rm(fs,ss, {divider = 2}, 'in', true) end
+function set_ugrumy_mapspot() add_map_spot_by_sid(727, "ui_pda2_quest_npc_location", "mil_Svoboda_master_Ugrumiy_name") end --// потом утащить в спот менеджер [>]
+function send_artefact(fs, ss) ris(fs,ss, 'af_cristall', 'in') end
+function send_desert_eagle(fs, ss) ris(fs,ss, 'wpn_desert_eagle', 'in') end
+function killactor() m_gulag.setGulagEnemy ("mil_dolg", actor) end
+function transfer_scope(fs, ss) rs(fs,ss, {{s='wpn_addon_scope', t='in'}, {s='vodka', t='out'}}) end
+function mil_leader_dialog_check() return has_info("mil_lukash_delay") or has_info("mil_lukash_dolg_task_complete") end
+--//==============================
+--// deadcity_dialog.script
+--//==============================
+function take_key(fs, ss) ris(fs,ss, 'cit_doctors_key', 'in') end
+function have_deadcity_map() return ho("cit_deadcity_maps") end
+function give_killers_maps(fs, ss) ris(fs,ss, 'cit_deadcity_maps', 'out') end
+function give_killer_maps_reward(fs, ss) rm(fs,ss, 3000, 'in') end
+--//==============================
+--// dialogs_aes.script
+--//==============================
+function osoznanie_decline(fs, ss)
+    disable_info("oso_init_dialog")
+    break_dialog(fs, ss)
+    xr_actions.enable_ui()      
+    local point = patrol("mon_jump_aes2_walk")
+    local look = patrol("mon_jump_aes2_look")
+    actor:set_actor_position(point:point(0))
+    local dir = look:point(0):sub(point:point(0))
+    actor:set_actor_direction(-dir:getH())
+end
+function osoznanie_agree(fs, ss)
+    disable_info("oso_init_dialog")
+    break_dialog(fs, ss)
+    xr_actions.enable_ui()      
+    game.start_tutorial("mov_join_osoznanie")
+end
+--//---------------------------------------------
+--// Prosectors functions
+--//---------------------------------------------
+function drink_vodka() eo('vodka') end
+function give_tutorial_art(fs, ss) ris(fs,ss, 'af_medusa', 'out') end --// на шару, без проверок
+function switch_to_trade() actor:switch_to_trade() end
+function is_kuznetsov(fs,ss) return es(fs,ss, story_ids.esc_kuznetsov) end
+function not_is_kuznetsov(fs,ss) return not is_kuznetsov(fs,ss) end
+--//-----------------------------------------------------------------

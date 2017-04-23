@@ -1,0 +1,156 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : sr_idle.script
+ Description: ”ниверсальна€ схема дл€ рестрикторов на основе sr_idle
+ Copyright  : 2015-2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local state_nowhere     = 0 --// дефолтовое состо€ние
+local state_inside      = 1 --// актер внутри
+local state_outside     = 2 --// актер снаружи
+--//-----------------------------------------------------------------------------------------------
+class "sr_custom"
+--//-------------------------
+function sr_custom:__init(obj, storage)
+    self.object = obj
+    self.st = storage
+end
+--//-----------------------------------------------------------------
+function sr_custom:reset_scheme()
+    self.state = state_nowhere
+    self.st.signals = {}
+    self.st.tip_result = true
+    self.st.tip_sended = false
+	self.sound_playing = false
+    self:update_no_weapon()
+end
+--//-----------------------------------------------------------------
+function sr_custom:deactivate()
+	if self.sound_playing then
+		m_sound.stop_sound_play(self.object)
+	end
+end
+--//-----------------------------------------------------------------
+function sr_custom:update(delta)
+    self:update_tip(delta)
+    self:update_no_weapon()
+    self:update_actor_sound()
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then return end    
+end
+--//-------------------------
+function sr_custom:update_tip(delta)
+    if not self.st.sr_tip then return end
+    if not self.object:inside(actor:position()) then return end
+    if self.st.conditions then
+        local section = xr_logic.pick_section_from_condlist(self.object, self.st.conditions.condlist)
+        if section == nil or section == 'nil' then self.st.tip_result = false end
+    end
+    if not self.st.tip_result then return end
+    if self.st.tip_sended then return end
+    manager_news.send_message(self.st.info, self.st.timeout, self.st.sender, self.st.showtime)
+    if self.st.single then
+        self.st.signals["tip_sended"] = true  
+        self.st.tip_sended = true
+    end 
+end
+--//-------------------------
+function sr_custom:update_no_weapon()
+    if not self.st.no_weapon then return end
+    local state = self.state
+    -- log('#DBG: update_no_weapon called (%s):state[%s]', time_global(), state)
+    if state ~= state_inside then
+        if self.object:inside(actor:position()) then
+            if actor:active_item() then --// Karlan: кроем только если есть что крыть
+                actor:hide_weapon()
+                write_pstor('zone_hided_weapon', true)
+            end
+            if not actor:active_item() then
+                actor:enable_slots(false)
+                self.state = state_inside
+            end
+            return
+        end
+    end
+    if state ~= state_outside then
+        if state == state_inside then --// Karlan: дл€ случаев, когда в такой зоне нам в пустой слот что-то засовывают и тут же активируют
+            if actor:active_item() then
+                actor:hide_weapon()
+                write_pstor('zone_hided_weapon', true)
+            end 
+        end
+        if not self.object:inside(actor:position()) then
+            actor:enable_slots(true)
+            if read_pstor('zone_hided_weapon') then
+                actor:restore_weapon()
+                if actor:active_item() and actor:is_enable_slots() then
+                    self.state = state_outside
+                    remove_pstor('zone_hided_weapon')
+                end
+            else
+                self.state = state_outside
+            end
+            return
+        end
+    end
+end
+--//-------------------------
+function sr_custom:update_actor_sound()
+    if not self.st.snd_theme then return end
+    if self.sound_playing then
+		m_sound.update(self.object)
+		return
+	end
+	self.sound_playing = m_sound.set_sound_play(self.object,self.st.snd_theme,true)
+	if not self.sound_playing then
+		log("!failed to play theme %s",self.st.snd_theme)
+	end
+end
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Initialization scheme
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(obj, ini, scheme, section, storage)
+    log("#DBG: obj = [%s], scheme = [%s], section = [%s]", obj:name(), scheme, section)
+    local new_action = sr_custom(obj, storage)
+    xr_logic.subscribe_action_for_events(obj, storage, new_action)
+end
+
+function set_scheme(obj, ini, scheme, section, gulag_name)
+    local st = xr_logic.assign_storage_and_bind(obj, ini, scheme, section)
+    st.logic = xr_logic.cfg_get_switch_conditions(ini, section, obj)
+    --// Load tips keys
+    --// Karlan->Karlan: перепроверить дефолтные значени€
+    st.info     = cfg_get_string(ini, section, "name")
+    st.type     = cfg_get_string(ini, section, "type", "news")
+    st.sender   = cfg_get_string(ini, section, "sender")
+    st.timeout  = cfg_get_number(ini, section, "timeout")
+    st.showtime = cfg_get_number(ini, section, "showtime")
+    st.single   = cfg_get_bool(ini, section, "single", false)
+    st.sr_tip   = (st.info ~= nil)
+    if st.sr_tip then log('#DBG: [%s] current section is tip (%s)', obj:name(), section) end
+    --// Load no weapon keys
+    st.no_weapon   = cfg_get_bool(ini, section, "no_weapon", false)
+    if st.no_weapon then log('#DBG: [%s] current section is no_weapon (%s)', obj:name(), section) end
+	--// Actor sound
+    st.snd_theme = cfg_get_string(ini, section, "snd_theme")
+	local snd = not st.snd_theme and cfg_get_string(ini, section, "snd")
+	if snd then
+		st.snd_theme = obj:name()..section
+		local ini_str = string.format("[%s]\npath = %s",st.snd_theme,snd)
+		local theme = m_sound_theme.make_theme('actor_sound',ini_str,st.snd_theme)
+		theme.min_delay = cfg_get_number(ini, section, "delay", 0)
+		theme.max_delay = cfg_get_number(ini, section, "delay_max", theme.min_delay)
+		log("[%s] created snd theme %s (%s)",obj:name(),theme.section,snd)
+	end
+    if st.snd_theme then log('#DBG: [%s] current section is sound_act (%s)', obj:name(), section) end
+    --// Load conditions
+    st.conditions = xr_logic.cfg_get_condlist(ini, section, "cond", obj)
+end
+--//-----------------------------------------------------------------------------------------------

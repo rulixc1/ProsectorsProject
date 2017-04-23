@@ -1,0 +1,48 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_hit.script (replaces xr_hit, mob_hit, ph_on_hit)
+ Description: pseudo-override
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "action_process_hit"
+function action_process_hit:__init(obj, storage)
+    self.object = obj
+    self.st = storage
+end
+function action_process_hit:hit_callback(data)
+    if data.amount == 0 then
+        log("~~> [%s] hit by [%s]: 0 damage, ignoring", self.object, data.who and data.who:name() or '?') --// Karlan: теперь можно и сталкера на танк сагрить :)
+        return
+    end
+    if not db.storage[self.object:id()].active_scheme then return end
+    if xr_logic.try_switch_to_another_section(self.object, self.st, data) then return end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    local new_action = action_process_hit(npc, storage)
+    storage.action = new_action
+end
+function set_scheme(npc, ini, scheme, section)
+    log('#DBG: set HIT scheme for [%s]: scheme = <%s>, section = [%s], time = [%s]', npc:name(), scheme, section, time_global())
+    local st = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+    st.logic = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+    xr_logic.subscribe_action_for_events(npc, st, st.action)
+end
+function disable_scheme(npc, scheme)
+    local st = db.storage[npc:id()][scheme]
+    if st then
+        xr_logic.unsubscribe_action_from_events(npc, st, st.action)
+    end
+end
+--//-----------------------------------------------------------------------------------------------

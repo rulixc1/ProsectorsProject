@@ -1,0 +1,17 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : db.script
+ Description: База данных онлайновых объектов, зон и рестрикторов
+ Copyright  : 2005 © GSC Game World
+ Author     : Чугай Александр
+ Editors    : Karlan
+--]] ----------------------------------------------------------------------------------------------
+
+--// массивы онлайновых объектов
+zone_by_name    = {} --// объекты рестрикторов и смартов по имени
+storage         = {} --// данные большинства объектов
+heli            = {} --// объекты вертолетов по айди
+
+function add_zone(zone) zone_by_name[zone:name()] = zone end
+function del_zone(zone) zone_by_name[zone:name()] = nil end
+function add_heli(obj) heli[obj:id()] = obj end
+function del_heli(obj) heli[obj:id()] = nil end

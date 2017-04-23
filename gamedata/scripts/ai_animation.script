@@ -1,0 +1,137 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_animation.script
+ Description: Специальный экшен для немедленного отыгрывания статичных анимаций
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Rulix aka Bak
+ Original   : AI Additions, 16.10.2016
+--]] ----------------------------------------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+---------------------------------------------------------------------------------------------------
+
+function play(npc,data)
+	if not npc:alive() then
+		return
+	end
+	local planner = npc:motivation_action_manager()
+	local action = planner:action(actions_id.anim_play)
+	if action.is_playing then
+		return
+	end
+	action.data = data
+	action.call_time = time_global()
+	action:enable(true)
+end
+
+----------------------------------------------------------------------------------------------------------------------
+-- ACTION
+----------------------------------------------------------------------------------------------------------------------
+class "action_animation_player" (action_base)
+function action_animation_player:__init (name) super (nil,name)
+end
+function action_animation_player:initialize()
+	action_base.initialize(self)
+	self.is_playing = true
+	if time_global()-self.call_time > 500 then
+		self:enable(false)
+		return
+	end
+	local npc = self.object
+	if npc:critically_wounded() then
+		self:enable(false)
+		return
+	end
+	state_mgr.lock(npc,true,true)
+	npc:set_desired_position()
+	npc:set_desired_direction()
+	npc:set_movement_type(move.stand)
+	npc:clear_animations()
+	if self.data.mental then
+		npc:set_mental_state(self.data.mental)
+	end
+	if self.data.body then
+		npc:set_body_state(self.data.body)
+	end
+	if self.data.weapon then
+		npc:set_item(self.data.weapon,npc:active_item(),math.random(1,7),1)
+	end
+	if self.data.sound then
+--		self.data.sound:play(npc,0,sound_object.s3d)
+		self.data.sound:play_at_pos(npc,npc:bone_position("bip01_head"),0,sound_object.s3d)
+	end
+	if self.data.sound_theme then
+		m_sound.set_sound_play(npc,self.data.sound_theme)
+	end
+	if self.data.look_object then
+		npc:set_sight(target,true,false)
+	elseif self.data.look_position then
+		npc:set_sight(look.point,self.data.look_position)
+	elseif self.data.look_direction then
+		npc:set_sight(look.direction,self.data.look_direction)
+	else
+		npc:set_sight(look.cur_dir,nil,0)
+	end
+	if type(self.data.animation) == 'string' then
+		npc:add_animation(self.data.animation,true)
+	else
+		for i,anim in ipairs(self.data.animation) do
+			npc:add_animation(anim,true)
+		end
+	end
+	self.timeout = self.data.timeout and time_global() + self.data.timeout or nil
+	self.init = true
+end
+function action_animation_player:execute()
+	action_base.execute(self)
+	local npc = self.object
+	if npc:animation_count() == 0 or self.timeout and self.timeout < time_global() then
+		self:enable(false)
+		if self.data.callback then
+			self.data.callback.func(self.data.callback.obj,self.object)
+		end
+	end
+	if self.init then
+		self.init = nil
+		return
+	end
+	if self.data.weapon == object.fire1 then
+		npc:set_item(self.data.weapon,npc:active_item(),math.random(1,7),10000)
+		self.data.weapon = nil
+	end
+end
+function action_animation_player:finalize()
+	action_base.finalize(self)
+	state_mgr.lock(self.object,false)
+	self.data = nil
+	self.is_playing = false
+	self:enable(false)
+end
+function action_animation_player:enable(val)
+	self.storage:set_property(evaluators_id.anim_play,val)
+end
+
+----------------------------------------------------------------------------------------------------------------------
+-- BINDER
+----------------------------------------------------------------------------------------------------------------------
+function init()
+	event("presets"):register(presets)
+end
+function presets()
+	event("npc_spawn"):register(add_to_binder)
+end
+
+function add_to_binder(t)
+	-- Должен иметь наивысший приоритет
+	local manager = t.st.planner
+	manager:set_property(evaluators_id.anim_play,false)
+	manager:add_evaluator(evaluators_id.anim_play,property_evaluator_member(nil,evaluators_id.anim_play,true))
+	--// action
+	local action = action_animation_player("animation_player")
+	action:add_precondition(world_property(evaluators_id.anim_play,true))
+	action:add_precondition(world_property(stalker_ids.property_puzzle_solved,false))
+	action:add_effect(world_property(evaluators_id.anim_play,false))
+	action:add_effect(world_property(stalker_ids.property_puzzle_solved,true))
+	manager:add_action(actions_id.anim_play,action)
+	--//
+	action = manager:action(actions_id.alife)
+	action:add_precondition(world_property(evaluators_id.anim_play,false))
+end

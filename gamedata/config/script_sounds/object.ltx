@@ -1,0 +1,388 @@
+;***************************************************************
+; ÒÅÌÛ ÄËß ÏÀÑÑÈÂÍÛÕ ÎÁÚÅÊÒÎÂ
+;***************************************************************
+
+#include "npc_item.ltx"
+
+[list]: list_npc
+;testloop
+
+[testloop]
+path = characters_voice\scenario\escape\comandir_megafon_
+type = looped
+
+;============================================================== 
+; ÷åïóøíÿ ÷åðíîâàÿ
+
+[list_object]
+music
+humor
+epic
+alarm1
+alarm2
+siren
+bomb
+detector
+
+[template_3d]
+[template_actor]
+
+[music]:template_3d
+path = characters_voice\scenario\megafon\megafon_music_
+
+[humor]:template_3d
+path = characters_voice\scenario\escape\comandir_megafon_
+
+[epic]:template_3d
+path = characters_voice\scenario\escape\megafon_1
+
+[alarm1]:template_3d
+path = characters_voice\scenario\megafon\megafon_alarm_
+
+[alarm2]:template_3d
+path = characters_voice\scenario\megafon\megafon_alarm_
+
+[siren]:template_3d
+path = ambient\siren2
+
+[bomb]:template_3d
+path = detectors\bomb_timer
+
+[detector]:template_3d
+path = detectors\da-2_beep1
+
+;==================================================
+
+[radio_music]:template_3d
+path = characters_voice\scenario\bar\radio_music\radio_music_1
+
+; BAR MEGAFON
+
+[dolg_speech]:template_3d
+path = characters_voice\scenario\bar\barman_megafon\megaphone_barman_
+path_1 = characters_voice\scenario\bar\barman_megafon\megaphone_barman_
+path_2 = characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_
+path_3 = characters_voice\scenario\megafon\megafon_music_
+
+[dolg_alarm]:template_3d
+path = characters_voice\scenario\bar\dolg_megafon\megaphone_duty_alarm
+
+[dolg_megafon_1_hit]:template_3d
+path = characters_voice\scenario\bar\dolg_megafon\duty_gunfire_mega_1
+
+[dolg_megafon_2_hit]:template_3d
+path = characters_voice\scenario\bar\dolg_megafon\duty_gunfire_mega_2
+
+[dolg_megafon_kill]:template_3d
+path = characters_voice\scenario\bar\dolg_megafon\duty_gunfire_mega_3
+
+[bar_start_megafon]:template_3d
+path = characters_voice\scenario\bar\barman_megafon\megaphone_barman_1
+path_1 = characters_voice\scenario\bar\barman_megafon\megaphone_barman_1
+path_2 = characters_voice\scenario\bar\barman_megafon\megaphone_barman_2
+path_3 = characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_1
+path_4 = characters_voice\scenario\bar\dolg_megafon\mega_duty_propaganda_2
+
+
+; ARENA
+
+[arena_introduce_pseudodog]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_pseudodog
+
+[arena_introduce_snork]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_snork
+
+[arena_introduce_bloodsucker]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_bloodsucker
+
+[arena_introduce_burer]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_burer
+
+[arena_introduce_savage]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_zver
+
+[arena_actor_afraid]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_coward
+
+[arena_fight_begin]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_start
+
+[arena_fight_victory]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_win_1
+
+[arena_fight_victory_notime]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_win_2
+
+[arena_fight_lose]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_out_of_time_win
+
+[arena_fight_death]:template_3d
+path = characters_voice\scenario\bar\arena_megafon\mega_arena_dead
+
+; sarcofag
+
+[mon_monolith_damaged]:template_actor
+path = characters_voice\scenario\sarcofag\monolith_damaged
+
+[mon_monolith_heavy_damaged]:template_actor
+path = characters_voice\scenario\sarcofag\monolith_heavy_damaged
+
+[mon_monolith_alarm]:template_actor
+path = characters_voice\scenario\sarcofag\monolith_alarm
+
+[mon_monolith_recharged]:template_actor
+path = characters_voice\scenario\sarcofag\monolith_recharged
+
+[sar_monolith_call]:template_actor
+path = characters_voice\scenario\sarcofag\monolith_call_
+
+;============
+
+[gar_seryi_shooting]:template_3d
+path = characters_voice\scenario\garbage\distance_shooting
+
+[gar_seryi_shooting_2]:template_3d
+path = characters_voice\scenario\bandits\bandit_replic_2
+
+[aes_battle1]:template_3d
+path = ambient\battle_1
+
+[aes_battle2]:template_3d
+path = ambient\battle_2
+
+[gar_bandits_seryi]:template_3d
+path = characters_voice\scenario\garbage\grey_bandit_
+
+;============
+
+[radar_drone]:template_3d
+path = ambient\radar_1
+
+[radar_thunder]:template_3d
+path = ambient\radar_2
+
+[radar_sparks]:template_3d
+path = ambient\radarsparks_1
+
+[aes_teleport]:template_3d
+path = anomaly\teleport_incoming
+
+[yan_antenna]:template_actor
+path = characters_voice\scenario\yantar\psy_voices_1
+
+[radar_meh_on]:template_actor
+path = ambient\cooling_run
+
+[radar_meh_off]:template_actor
+path = ambient\cooling_stop
+
+
+[system_message_1]:template_actor
+path = characters_voice\scenario\yantar\system_message_1
+
+[system_message_2]:template_actor
+path = characters_voice\scenario\yantar\system_message_2
+
+[system_message_3]:template_actor
+path = characters_voice\scenario\yantar\system_message_3
+
+[system_message_4]:template_actor
+path = characters_voice\scenario\yantar\system_message_4
+
+[system_message_5]:template_actor
+path = characters_voice\scenario\yantar\system_message_5
+
+
+[agro_test]:template_3d
+path = weapons\grenade1
+
+
+[bar_arena_public]:template_3d
+path = characters_voice\scenario\bar\arena_public\new_arena_public_
+
+[bar_arena_public_death]:template_3d
+path = ambient\arena\crowd_wave_
+
+
+[bar_arena_fight_1]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_1_ready
+
+[bar_arena_fight_1_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_1_finish
+
+[bar_arena_fight_2]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_2_ready
+
+[bar_arena_fight_2_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_2_finish
+
+[bar_arena_fight_3]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_3_ready
+
+[bar_arena_fight_3_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_3_finish
+
+[bar_arena_fight_4]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_4_ready
+
+[bar_arena_fight_4_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_4_finish
+
+[bar_arena_fight_5]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_5_ready
+
+[bar_arena_fight_5_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_5_finish
+
+[bar_arena_fight_6]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_6_ready
+
+[bar_arena_fight_6_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_6_finish
+
+[bar_arena_fight_7]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_7_ready
+
+[bar_arena_fight_7_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_7_finish
+
+[bar_arena_fight_8]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_8_ready
+
+[bar_arena_fight_8_end]:template_3d
+path = characters_voice\scenario\bar\arena_sound\bar_fight_8_finish
+
+; x18
+
+[x18_sound_1]:template_actor
+path = ambient\x18\x18_hit_8
+
+[x18_sound_2]:template_actor
+path = ambient\x18\x18_metal_2
+
+[x18_sound_3]:template_actor
+path = ambient\x18\x18_metal_3
+
+[x18_sound_4]:template_actor
+path = ambient\x18\x18_metal_4
+
+[x18_sound_5]:template_actor
+path = ambient\x18\x18_metal_5
+
+[x18_sound_6]:template_actor
+path = ambient\x18\x18_creak_2
+
+[x18_sound_7]:template_actor
+path = ambient\x18\x18_creak_1
+
+[x18_sound_8]:template_actor
+path = ambient\x18\x18_hit_7
+
+[x18_sound_9]:template_actor
+path = ambient\x18\x18_footsteps_2
+
+[x18_sound_10]:template_actor
+path = ambient\x18\x18_move_4
+
+[x18_sound_11]:template_actor
+path = ambient\x18\x18_footsteps
+
+[x18_sound_12]:template_actor
+path = ambient\x18\x18_move_3
+
+[x18_firedoor]:template_actor
+path = anomaly\fireball_idle
+
+; x16
+
+[x16_engine1_run]:template_actor
+path = ambient\x16\x16_engine1_run
+
+[x16_engine1_stop]:template_actor
+path = ambient\x16\x16_engine1_stop
+
+[x16_engine2_run]:template_actor
+path = ambient\x16\x16_engine2_run
+
+[x16_engine2_stop]:template_actor
+path = ambient\x16\x16_engine2_stop
+
+[x16_hum_2]:template_actor
+path = ambient\x16\x16_hum_2
+
+[x16_switch_1]:template_actor
+path = ambient\x16\switch_1
+
+[x16_switch_2]:template_actor
+path = ambient\x16\switch_2
+
+;=============
+
+[mon_poltergeist]:template_3d
+path = anomaly\anomaly_gravy_hit1
+
+[psy_voices]:template_actor
+path = characters_voice\scenario\yantar\psy_voices_1
+
+[heli_explosion]:template_3d
+path = weapons\heli_explosion
+
+; doors
+
+[trader_door_open_start]:template_3d
+path = device\door_start
+
+[trader_door_close_start]:template_3d
+path = device\door_closing
+
+[trader_door_close_stop]:template_3d
+path = device\door_stop
+
+[trader_door_locked]:template_3d
+path = device\door_locked
+
+[trader_door_unlock]:template_3d
+path = device\door_servomotor
+
+[wood_small_open]:template_3d
+path = device\wood_small_open
+
+[wood_small_close_start]:template_3d
+path = device\wood_small_close_start
+
+[wood_small_close_stop]:template_3d
+path = device\wood_small_close_stop
+
+[wood_large_open]:template_3d
+path = device\wood_large_open
+
+[wood_large_close_start]:template_3d
+path = device\wood_large_close_start
+
+[wood_large_close_stop]:template_3d
+path = device\wood_large_close_stop
+
+[metal_small_open]:template_3d
+path = device\metal_small_open
+
+[metal_small_close_start]:template_3d
+path = device\metal_small_close_start
+
+[metal_small_close_stop]:template_3d
+path = device\metal_small_close_stop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

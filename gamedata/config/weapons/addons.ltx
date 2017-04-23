@@ -1,0 +1,268 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;    WEAPON ADDONS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+[wpn_addon_scope]:identity_immunities
+GroupControlSection    = spawn_group
+discovery_dependency = 
+$spawn            = "weapons\addons\scope" ; option for Level Editor
+class            = WP_SCOPE
+cform           = skeleton
+visual          = weapons\upgrade\wpn_scope.ogf
+$prefetch         = 32
+description        = st_addon_scope_descr
+cost			= 800
+
+holder_range_modifier    = 1.2
+holder_fov_modifier        = 0.3
+
+inv_name        = st_addon_scope
+inv_name_short    = st_addon_scope
+inv_weight        = .2
+inv_volume        = .15
+
+inv_grid_width        = 2
+inv_grid_height        = 1
+inv_grid_x            = 18
+inv_grid_y            = 2
+scope_texture        = wpn\wpn_crosshair
+scope_zoom_factor    = 25        ;ПСО-1 2X
+
+[wpn_addon_scope_x27]:wpn_addon_scope
+$spawn            = "weapons\addons\scope_x27" ; option for Level Editor
+holder_range_modifier    = 1.2
+holder_fov_modifier        = 1.0
+inv_grid_x            = 16
+inv_grid_y            = 29
+inv_name        = st_addon_scope_x27
+inv_name_short    = st_addon_scope_x27
+description        = st_addon_scope_x27_descr
+scope_zoom_factor    = 40        ;ПСО-1 2X
+cost			= 2000
+
+[wpn_addon_scope_detector]:wpn_addon_scope
+$spawn            = "weapons\addons\scope_detector" ; option for Level Editor
+holder_range_modifier    = 1.2
+holder_fov_modifier        = 1.0
+inv_grid_x            = 14
+inv_grid_y            = 29
+inv_name        = st_addon_scope_detector
+inv_name_short    = st_addon_scope_detector
+description        = st_addon_scope_detector_descr
+cost = 10000
+scope_alive_detector = scope_detector
+scope_zoom_factor    = 30        ;ПСО-1 2X
+
+[wpn_addon_scope_night]:wpn_addon_scope
+$spawn            = "weapons\addons\scope_night" ; option for Level Editor
+description        = st_addon_scope_night_vision_descr
+cost            = 5000
+
+holder_range_modifier    = 1.2
+holder_fov_modifier        = 1.0
+
+inv_name        = st_addon_scope_night_vision
+inv_name_short    = st_addon_scope_night_vision
+inv_weight        = .2
+
+inv_grid_x            = 14
+inv_grid_y            = 30
+scope_nightvision = scope_nightvision
+scope_zoom_factor    = 30        ;ПСО-1 2X
+
+[wpn_addon_scope_dynamic_zoom]:wpn_addon_scope
+$spawn            = "weapons\addons\scope_dynamic_zoom" ; option for Level Editor
+description        = st_addon_scope_dynamic_zoom_descr
+cost            = 3000
+
+holder_range_modifier    = 1.2
+holder_fov_modifier        = 1.0
+
+inv_name        = st_addon_scope_dynamic_zoom
+inv_name_short    = st_addon_scope_dynamic_zoom
+inv_weight        = .2
+
+inv_grid_x            = 16
+inv_grid_y            = 30
+scope_zoom_factor    = 25        ;ПСО-1 2X
+scope_dynamic_zoom = true
+
+[wpn_addon_scope_susat]:identity_immunities
+GroupControlSection    = spawn_group
+discovery_dependency = 
+$spawn            = "weapons\addons\scope_susat" ; option for Level Editor
+class            = WP_SCOPE
+cform           = skeleton
+visual          = weapons\upgrade\wpn_scope_susat.ogf
+description        = enc_weapons1_wpn-addon-scope-susat
+
+;$prefetch         = 64
+
+cost            = 900
+
+holder_range_modifier    = 1.3
+holder_fov_modifier        = 0.3
+
+inv_name        = st_addon_scope_susat
+inv_name_short    = st_addon_scope_susat
+inv_weight        = .2
+inv_volume        = .15
+
+inv_grid_width        = 1
+inv_grid_height        = 1
+inv_grid_x            = 19
+inv_grid_y            = 1
+scope_texture        = wpn\wpn_crosshair_l85
+scope_zoom_factor    = 30        ;SUSAT 2X
+
+[wpn_addon_scope_susat_x16]:wpn_addon_scope_susat
+$spawn            = "weapons\addons\scope_susat_x16"
+description        = st_addon_scope_susat_x16_descr
+cost            = 900
+
+holder_range_modifier    = 1.3
+holder_fov_modifier        = 1.0
+
+inv_name        = st_addon_scope_susat_x16
+inv_name_short    = st_addon_scope_susat_x16
+inv_grid_x            = 14
+inv_grid_y            = 31
+scope_zoom_factor    = 50
+
+[wpn_addon_scope_susat_custom]:wpn_addon_scope_susat
+$spawn			= "weapons\addons\scope_susat_custom"
+description		= st_addon_scope_susat_custom_descr
+cost			= 5500
+
+holder_range_modifier	= 1.3
+holder_fov_modifier		= 1.0
+
+inv_name		= st_addon_scope_susat_custom
+inv_name_short	= st_addon_scope_susat_custom
+inv_grid_x			= 17
+inv_grid_y			= 31
+scope_dynamic_zoom = true
+scope_zoom_factor	= 30
+
+[wpn_addon_scope_susat_dusk]:wpn_addon_scope_susat
+$spawn			= "weapons\addons\scope_susat_dusk"
+description		= st_addon_scope_susat_dusk_descr
+cost			= 2500
+
+holder_range_modifier	= 1.3
+holder_fov_modifier		= 1.0
+
+inv_name		= st_addon_scope_susat_dusk
+inv_name_short	= st_addon_scope_susat_dusk
+inv_grid_x			= 14
+inv_grid_y			= 32
+scope_nightvision = scope_contrast
+scope_zoom_factor	= 50		;SUSAT 2X
+
+[wpn_addon_scope_susat_night]:wpn_addon_scope_susat
+$spawn			= "weapons\addons\scope_susat_night"
+description		= st_addon_scope_susat_night_vision_descr
+cost			= 3500
+
+holder_range_modifier	= 1.3
+holder_fov_modifier		= 1.0
+
+inv_name		= st_addon_scope_susat_night_vision
+inv_name_short	= st_addon_scope_susat_night_vision
+inv_grid_x			= 16
+inv_grid_y			= 31
+scope_nightvision = scope_nightvision
+scope_zoom_factor	= 30
+
+;;;;;;;;;;;;;Advanced scope settings;;;;;;;;;;;;;;;;
+[scope_nightvision]
+snd_night_vision_on            = weapons\nv_start
+snd_night_vision_off        = weapons\nv_off
+snd_night_vision_idle        = weapons\nv_loop
+snd_night_vision_broken        = weapons\nv_off
+
+pp_eff_name = nightvision_good.ppe
+pp_eff_cyclic = 1
+pp_eff_overlap = false
+
+[scope_detector]
+vis_frame_speed                = 4                ; скорость, с которой наводится рамка на цель
+vis_frame_color                = 0.7,0.7,0.7,1.0    ; цвет рамки RGBA (A) Не учитывается
+found_snd                    = detectors\DA-2_beep1
+catch_snd                    = detectors\DA-2_beep1
+
+[scope_contrast]
+pp_eff_name = contrast.ppe
+pp_eff_cyclic = 1
+pp_eff_overlap = false
+
+[wpn_addon_silencer]:identity_immunities
+GroupControlSection    = spawn_group
+discovery_dependency = 
+$spawn            = "weapons\addons\silencer" ; option for Level Editor
+class            = W_SILENC
+cform           = skeleton
+visual          = weapons\upgrade\wpn_silencer.ogf
+description        = enc_weapons1_wpn-addon-silencer
+$prefetch         = 32
+
+cost                     = 100;150
+inv_name        = wpn-addon-silencer
+inv_name_short    = wpn-addon-silencer
+inv_weight        = .1
+inv_volume        = .1
+
+inv_grid_width        = 1
+inv_grid_height        = 1
+inv_grid_x            = 18
+inv_grid_y            = 1
+
+bullet_hit_power_k    = 0.8
+bullet_speed_k         = 0.8
+fire_dispersion_base_k = 1.25;2
+cam_dispersion_k    = 0.8
+
+[wpn_addon_grenade_launcher]:identity_immunities
+GroupControlSection    = spawn_group
+discovery_dependency = 
+$spawn            = "weapons\addons\grenade_launcher" ; option for Level Editor
+class            = W_GLAUNC
+cform           = skeleton
+visual          = weapons\upgrade\wpn_grenade_launcher.ogf
+description        = enc_weapons1_wpn-addon-grenade-launcher
+$prefetch         = 32
+
+cost                     = 250
+inv_name        = wpn-addon-grenade-launcher
+inv_name_short    = wpn-addon-grenade-launcher
+inv_weight        = 1.3
+inv_volume        = .4
+
+inv_grid_width        = 2
+inv_grid_height        = 1
+inv_grid_x            = 18
+inv_grid_y            = 0
+grenade_vel            = 76
+
+
+[wpn_addon_grenade_launcher_m203]:identity_immunities
+GroupControlSection    = spawn_group
+discovery_dependency = 
+$spawn            = "weapons\addons\grenade_launcher_m203" ; option for Level Editor
+class            = W_GLAUNC
+cform           = skeleton
+visual          = weapons\upgrade\wpn_grenade_launcher_m203.ogf
+description        = enc_weapons1_wpn-addon-grenade-launcher-m203
+$prefetch         = 32
+
+cost                     = 250
+inv_name        = wpn-addon-grenade-launcher-m203
+inv_name_short    = wpn-addon-grenade-launcher-m203
+inv_weight        = 1.36
+inv_volume        = .6
+
+inv_grid_width        = 2
+inv_grid_height        = 1
+inv_grid_x            = 17
+inv_grid_y            = 3
+grenade_vel            = 71

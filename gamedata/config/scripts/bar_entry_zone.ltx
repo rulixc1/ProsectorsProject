@@ -1,0 +1,36 @@
+[logic]
+active = sr_idle@respawn1
+
+;bar_bar_square_1_state_1 - пустышка
+;bar_bar_square_1_state_2 - bar_general - bar_bar_square_1_place_2
+;bar_bar_square_1_state_3 - пустышка
+;bar_bar_square_2_state_1 - bar_bandit - bar_bar_square_2_place_1
+;bar_bar_square_2_state_2 - пустышка
+;bar_bar_square_2_state_3 - bar_brown_novice - bar_bar_square_3_place_4
+;bar_bar_square_3_state_1 - флаг спавна
+;bar_bar_square_3_state_2 - bar_dolg - bar_bar_square_3_place_2
+;bar_bar_square_3_state_3 - bar_general - bar_bar_square_3_place_3
+; Я бы добавил еще пару-тройку мест и разные варианты их заселения
+
+[sr_idle@respawn1] ; проверяем, был ли уже спавн
+on_actor_inside = {+bar_bar_square_3_state_1} sr_idle@idle1, sr_idle@respawn2
+
+[sr_idle@respawn2]
+on_actor_inside = {~70} sr_idle@respawn3 %+bar_bar_square_1_state_2%, sr_idle@respawn3
+
+[sr_idle@respawn3]
+on_actor_inside = {~70} sr_idle@respawn4 %+bar_bar_square_2_state_1%, sr_idle@respawn4
+
+[sr_idle@respawn4]
+on_actor_inside = {~50} sr_idle@respawn5 %+bar_bar_square_3_state_2%, sr_idle@respawn5
+
+[sr_idle@respawn5]
+on_actor_inside = {~60} sr_idle@respawn6 %+bar_bar_square_2_state_3%, sr_idle@respawn6
+
+[sr_idle@respawn6]
+on_actor_inside = {~70} sr_idle@idle1 %+bar_bar_square_3_state_3 +bar_bar_square_3_state_1%, sr_idle@idle1 %+bar_bar_square_3_state_1%
+
+
+[sr_idle@idle1]
+on_actor_outside = sr_idle@respawn1 %-bar_bar_square_3_state_1 -bar_bar_square_1_state_2 -bar_bar_square_2_state_1 -bar_bar_square_2_state_3 -bar_bar_square_3_state_2 -bar_bar_square_3_state_3%
+

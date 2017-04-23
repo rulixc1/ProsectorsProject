@@ -1,0 +1,52 @@
+;--//-----------------------------------------------------------------------------------------
+;--//    Черная кожаная куртка
+;--//-----------------------------------------------------------------------------------------
+[bandit_outfit]:outfit_base
+$spawn             = "outfit\bandit_outfit"
+visual          = equipments\bandit_suit
+actor_visual    = actors\hero\stalker_bandit.ogf
+
+ef_equipment_type    = 3
+
+inv_name            = bandit_outfit_name
+inv_name_short        = bandit_outfit_name
+description            = bandit_outfit_description
+cost                = 3000
+inv_weight            = 3.0
+inv_volume            = 5.0
+inv_grid_width        = 2
+inv_grid_height        = 2
+inv_grid_x            = 12
+inv_grid_y            = 0
+full_icon_name        = npc_icon_bandit_outfit
+
+full_scale_icon        = 0,6
+
+immunities_sect            = sect_bandit_outfit_immunities
+
+burn_protection                 = 0.1
+strike_protection                 = 0.1
+shock_protection                 = 0.1
+wound_protection                = 0.15
+radiation_protection             = 0.0
+telepatic_protection             = 0.0
+chemical_burn_protection         = 0.1
+explosion_protection             = 0.1
+fire_wound_protection              = 0.15
+
+power_loss                = 1.0
+hit_fraction_actor                = 0.82
+bones_koeff_protection          = actor_armor_suit
+artefact_count          = 0
+
+[sect_bandit_outfit_immunities]
+burn_immunity                = 0.12
+strike_immunity                = 0.06
+shock_immunity                = 0.1
+wound_immunity                = 0.05
+radiation_immunity            = 0.00
+telepatic_immunity            = 0.00
+chemical_burn_immunity        = 0.06
+explosion_immunity            = 0.12
+fire_wound_immunity            = 0.05
+;--//-----------------------------------------------------------------------------------------

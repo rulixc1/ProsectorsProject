@@ -1,0 +1,377 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_help_wounded.script
+ Description: —хема помощи раненым товарищей
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Rulix aka Bak (по материалам GSC)
+ Original   : AI Additions
+--]] ----------------------------------------------------------------------------------------------
+_DEBUG_ = true --// file under debugging?
+
+local hw_ini = ini_file([[misc\ai_additions\help_wounded.ltx]])
+assert(hw_ini:section_exist("main"),"no hw_ini")
+local excluded_npcs = collect_sections(hw_ini,{"excluded_npcs"},nil,true)
+local excluded_communities = parse_list(hw_ini,"main","excluded_communities",true)
+local forbidden_patients = collect_sections(hw_ini,{"forbidden_patients"},nil,true)
+local help_distance = cfg_get_number(hw_ini,'main',"help_distance")^2
+local help_distance_story = cfg_get_number(hw_ini,'main',"help_distance_story")^2
+local attchlist = {'medkit_scientic','medkit_army','medkit','bandage'}
+hw_ini = nil
+
+----------------------------------------------------------------------------------------------------------------------
+-- EVALUATORS
+----------------------------------------------------------------------------------------------------------------------
+class "evaluator_wounded_exist" (property_evaluator)
+function evaluator_wounded_exist:__init(storage, name) super (nil, name)
+	if storage.enabled == nil then
+		storage.enabled = true
+	end
+	self.a = storage
+	self.a.dtimer = time_global()+3000
+end
+function evaluator_wounded_exist:evaluate()
+	local npc = self.object
+	local function bad_conditions()
+		if not npc:alive() or self.a.enabled == false or ai_wounded.is_wounded(npc) then
+			return true
+		end
+		-- local bd = npc:best_danger()
+		-- if bd and bd:type() == danger_object.grenade then
+			-- return true
+		-- end
+		if self.storage:property(stalker_ids.property_danger_grenade) then
+			return true
+		end
+		local be = npc:best_enemy()
+		if be then
+			if not be:wounded() then
+				return true
+			end
+			if ai_kill_wounded and self.storage:property(stalker_ids.property_enemy_wounded) ~= true then
+				return true
+			end
+		end
+	end
+	local npc_id = npc:id()
+	if self.a.active and self.a.selected_id then
+		if bad_conditions() then
+			self.a.active = nil
+			return false
+		end
+		local dbst = db.storage[self.a.selected_id]
+		local patient = dbst and level.object_by_id(self.a.selected_id)
+		if patient and patient:alive() and ai_wounded.is_wounded(patient) and (dbst.wounded_already_selected == nil or dbst.wounded_already_selected == npc_id) and dbst.wounded_processor == nil then	-- and patient:wounded()
+			if ai_wounded.wounded_fight(self.a.selected_id) and not patient:wounded() or patient:position():distance_to_sqr(self.a.vertex_position) > 20 then
+				self.a.active = nil
+				return false
+			end
+			return true
+		else
+			self.a.active = nil
+			return false
+		end
+	end
+	local tg = time_global()
+	if self.a.dtimer > tg then
+		return false
+	end
+	self.a.dtimer = tg+math.random(4000,6000)
+	if bad_conditions() then
+		self.a.active = nil
+		return false
+	end
+	local nearest_dist = is_story_object(npc) and help_distance_story or help_distance
+	local nearest_vertex, nearest_position, selected_id
+	local npc_position = npc:position()
+	for v in (tg%2 == 0 and npc:memory_visible_objects() or npc:memory_sound_objects()) do
+		local vo = v:object()
+		if vo:alive() and vo:is_stalker() and ai_wounded.is_wounded(vo) and npc:relation(vo) ~= game_object.enemy then
+			local id = vo:id()
+			local dbst = db.storage[id]
+			if dbst.wounded_already_selected == nil and (vo:wounded() or not ai_wounded.wounded_fight(id)) and not forbidden_patients[vo:name()] and dbst.wounded.not_for_help ~= true and dbst.wounded_processor == nil then
+				local vo_position = vo:position()
+				local dist = npc_position:distance_to_sqr(vo_position)
+				if npc:relation(vo) ~= game_object.friend then
+					dist = dist*1.2
+				end
+				if dist < nearest_dist then
+					local vertex = vo:level_vertex_id()
+					if npc:accessible(vertex) and level.vertex_position(vertex):distance_to_sqr(vo_position) <= 20 then
+						nearest_dist = dist
+						nearest_vertex = vertex
+						nearest_position = level.vertex_position(vertex)
+						selected_id = id
+					end
+				end
+			end
+		end
+	end
+	if nearest_vertex then
+		self.a.vertex_id = nearest_vertex
+		self.a.vertex_position = nearest_position
+		self.a.selected_id = selected_id
+		self.a.active = true
+		return true
+	end
+	return false
+end
+
+----------------------------------------------------------------------------------------------------------------------
+--Actions
+----------------------------------------------------------------------------------------------------------------------
+class "action_help_wounded" (action_base)
+function action_help_wounded:__init (storage,name) super (nil, name)
+	self.a = storage
+end
+function action_help_wounded:initialize()
+	action_base.initialize(self)
+	local npc = self.object
+	npc:set_desired_position()
+	npc:set_desired_direction()
+	npc:set_path_type(game_object.level_path)
+	npc:set_dest_level_vertex_id(self.a.vertex_id)
+--[[	if not can_strap(npc) then
+		state_mgr.set_state(npc,"rush")
+	else
+		local patient = level.object_by_id(self.a.selected_id)
+		if (patient and npc:relation(patient) == game_object.friend) or npc:position():distance_to(self.a.vertex_position) > 8 then
+			state_mgr.set_state(npc,"run")
+		else
+			state_mgr.set_state(npc,"walk")
+		end
+	end]]
+	-- ищем аптечку
+	for _,s in ipairs(attchlist) do
+		local medkit = npc:object(s)
+		if medkit then
+			self.medkit = medkit:section()
+			break
+		end
+	end
+	ai_common.subscribe_for_events(npc:id(),self)
+end
+function action_help_wounded:execute()
+	action_base.execute(self)
+	local npc = self.object
+	if self.id ~= self.a.selected_id then
+		if self.id and db.storage[self.id] then
+			db.storage[self.id].wounded_already_selected = nil
+		end
+		self.id = self.a.selected_id
+		db.storage[self.id].wounded_already_selected = npc:id()
+		self.timer = time_global()+40000
+	end
+	if self.timer < time_global() then
+		help_wounded(npc) -- fix
+		return
+	end
+	if npc:position():distance_to(self.a.vertex_position) < 4.5 then
+		m_sound.set_sound_play(npc,"wounded_medkit")
+	end
+	local item = self.medkit and npc:object(self.medkit)
+	if item then
+		if self.attach and (npc:weapon_strapped() or not npc:active_item()) then
+			item:enable_attachable_item(true)
+		else
+			item:enable_attachable_item(false)
+		end
+	end
+	local patient = level.object_by_id(self.a.selected_id)
+	if patient and npc:position():distance_to(patient:position()) < 1.0 or npc:level_vertex_id() == self.a.vertex_id then
+		local look_pos = patient:bone_position("bip01_spine1")
+		state_mgr.set_state(npc,"help_wounded",nil,nil,{look_position = look_pos})
+		npc:set_movement_type(move.stand)
+		if self.attach == true then
+			self.attach = time_global()+5000
+		elseif self.attach and self.attach < time_global() then
+			self.attach = false
+		end
+	else
+		self.attach = true
+		local d	-- раненый решил куда-то смотатьс€
+		if not patient:wounded() then
+			self.a.vertex_id = patient:level_vertex_id()
+			self.a.vertex_position = level.vertex_position(self.a.vertex_id)
+			d = true
+		end
+		if not npc:accessible(self.a.vertex_id) then
+			self.a.active = nil
+			return
+		end
+--		if state_mgr.get_state(npc) == "help_wounded" then
+			if d or npc:best_enemy() or db.storage[npc:id()].danger_flag then
+				state_mgr.set_state(npc,"assault",nil,nil,nil,{animation = true})
+			elseif not can_strap(npc) then
+				state_mgr.set_state(npc,"rush",nil,nil,nil,{animation = true})
+			else
+				state_mgr.set_state(npc,"run",nil,nil,nil,{animation = true})
+			end
+--		end
+		if npc:animation_count() == 0 then
+			npc:set_movement_type(move.run)
+		end
+		npc:set_path_type(game_object.level_path)
+		npc:set_dest_level_vertex_id(self.a.vertex_id)
+	end
+end
+function action_help_wounded:finalize()
+	action_base.finalize(self)
+	local npc = self.object
+	if self.id and db.storage[self.id] then
+		db.storage[self.id].wounded_already_selected = nil
+	end
+	self.a.selected_id = nil
+	self.a.active = nil
+	self.id = nil
+	self.attach = nil
+	if not npc:alive() then
+		return
+	end
+	local item = self.medkit and npc:object(self.medkit)
+	if item then
+		item:enable_attachable_item(false)
+	end
+	self.medkit = nil
+	npc:set_movement_type(move.walk)
+	state_mgr.set_state(npc,"idle",nil,nil,nil,{animation = true})
+	ai_common.unsubscribe_from_events(npc:id(),self)
+end
+function action_help_wounded:hit_callback()
+	local npc = self.object
+	self.a.dtimer = time_global()+(npc:best_enemy() and 6000 or 24000)
+	self.a.active = nil
+	if state_mgr.get_state(npc) == "help_wounded" and math.random() < 0.3 then
+		help_wounded(npc)
+	end
+	m_sound.stop_sound_play(npc,1)
+	local item = npc:alive() and self.medkit and npc:object(self.medkit)
+	if item then
+		npc:drop_item(item,6)
+		self.medkit = nil
+	end
+end
+
+function help_wounded(npc)
+	local st = npc:binded_object().st.ai.help_wounded
+	st.active = nil
+	st.dtimer = time_global()+1000	-- 0
+	local selected_npc = st.selected_id and level.object_by_id(st.selected_id)
+	if not (selected_npc and selected_npc:alive()) then
+		return
+	end
+	local medlist = ai_wounded.help_medkits
+	local medkit
+	-- ищем аптечку у пациента
+	for k,v in ipairs(medlist) do
+		medkit = selected_npc:object(v)
+		if medkit then
+			log("help_wounded[%s] help %s:have medkit %s",npc:name(),selected_npc:name(),medkit:name())
+			break
+		end
+	end
+	-- ищем аптечку у лекар€
+	if not medkit then
+		for k,v in ipairs(medlist) do
+			medkit = npc:object(v)
+			if medkit then
+				npc:transfer_item(medkit,selected_npc)
+				log("help_wounded[%s] help %s:transfer medkit %s",npc:name(),selected_npc:name(),medkit:name())
+				break
+			end
+		end
+	end
+	-- создаЄм новую аптечку
+	if not medkit then
+		local sec = "medkit"
+		local bst = db.storage[st.selected_id].ai.bandage
+		if bst then
+			sec = medlist[math.random(#medlist)]
+			if bst.spawn_time_m then
+				bst.spawn_time_m = time_global()+ai_bandage.bandage_sets.spawn_mt
+			end
+		end
+		log("help_wounded[%s] help %s:create medkit '%s'",npc:name(),selected_npc:name(),sec)
+		sim:create(sec,selected_npc:position(),selected_npc:level_vertex_id(),selected_npc:game_vertex_id(),st.selected_id)
+	end
+	ai_wounded.unlock_medkit(selected_npc)
+	npc:set_character_rank(npc:character_rank()+math.floor(1/(m_ranks.stalker_rank_unit*30)))
+	npc:change_character_reputation(10)
+end
+
+function can_strap(npc)
+	local wpn = npc:active_item()
+	if not state_mgr_weapon.strappable_weapon(wpn) then
+		return true
+	end
+	return true	--get_weapon_state(wpn) ~= EWeaponStates.eReload
+end
+
+----------------------------------------------------------------------------------------------------------------------
+-- BINDER
+----------------------------------------------------------------------------------------------------------------------
+function init()
+	event("presets"):register(presets)
+end
+function presets()
+	event("npc_spawn"):register(add_to_binder)
+	event("activate_by_section"):register(reset_scheme)
+end
+
+local evid_wounded_exist = evaluators_id('help_wounded',false)
+actions_id('help_wounded')
+
+function add_to_binder(t)
+	local npc = t.obj
+	local manager = t.st.planner
+	local storage = t.st.ai('help_wounded')
+	-- Evaluators
+	if excluded_communities[npc:character_community()] or excluded_npcs[npc:name()] or excluded_npcs[npc:profile_name()] then
+		manager:add_evaluator	(evid_wounded_exist,property_evaluator_const(false))
+		return
+	end
+	manager:add_evaluator		(evid_wounded_exist, evaluator_wounded_exist(storage, "wounded_exist"))
+	-- Actions
+	local wp = world_property
+	local action = action_help_wounded(storage,"action_help_wounded")
+	action:add_precondition		(wp(stalker_ids.property_anomaly,false))
+	action:add_precondition		(wp(evaluators_id.sidor_wounded_base,false))
+	if evaluators_id.bandage then
+		action:add_precondition (wp(evaluators_id.bandage,false))
+	end
+	if evaluators_id.grenade_evade then
+		action:add_precondition	(wp(evaluators_id.grenade_evade,false))
+	end
+	action:add_precondition		(wp(evid_wounded_exist,true))
+	action:add_effect			(wp(evid_wounded_exist,false))
+	manager:add_action			(actions_id.help_wounded, action)
+
+	action = manager:action		(actions_id.alife)
+	action:add_precondition		(wp(evid_wounded_exist,false))
+
+	action = manager:action		(stalker_ids.action_danger_planner)
+	action:add_precondition		(wp(evid_wounded_exist,false))
+
+	action = manager:action		(stalker_ids.action_combat_planner)
+	action:add_precondition		(wp(evid_wounded_exist,false))
+
+	action = manager:action		(actions_id.stohe_meet_base+1)
+	action:add_precondition		(wp(evid_wounded_exist,false))
+end
+
+function reset_scheme(a)
+	if not a.is_stalker then
+		return
+	end
+	local st = a.st
+	if not a.section then
+		st.ai('help_wounded').enabled = true
+	elseif st.ini:line_exist(a.section,"help_wounded_enabled") then
+		st.ai('help_wounded').enabled = st.ini:r_bool(a.section,"help_wounded_enabled")
+	else
+		st.ai('help_wounded').enabled = cfg_get_bool(st.ini,st.section_logic,"help_wounded_enabled",true)
+	end
+end
+
+function is_under_help_wounded(npc)
+	local mgr = npc:motivation_action_manager()
+	return mgr:initialized() and mgr:current_action_id() == actions_id.help_wounded
+end

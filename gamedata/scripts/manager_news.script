@@ -1,0 +1,448 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : manager_news.script (from news_manager)
+ Description: функции для работы с SMS
+ Copyright  : 2017 © Prosectors Project
+ Author     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local _get_so = m_sound.get_safe_sound_object
+local news_sounds = {} --// массив с объектами заготовленных звуков для сообщений
+local pda_sounds = {} --// массив с объектами звуков для оповещения
+local senders_icons = {} --// иконки отправителей сообщений
+local action_descr_by_type = {} --// string id различных стадий задания
+--//-------------------------
+local loaded = false
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("presets"):register(presets)
+--// Karlan->Team: у меня было затмение, да =D
+    news_sounds = {
+        tips_esc_trader_about_anomalies     = _get_so([[characters_voice\scenario\trader\trader_tutorial_anomalies_1]]),
+        esc_return_dv                       = _get_so([[characters_voice\scenario\trader\return_from_dv]]),
+        escape_fox_quest                    = _get_so([[characters_voice\scenario\trader\trader_pda_fox]]),
+
+        tips_agr_krot_sos                   = _get_so([[characters_voice\scenario\agroprom\krot_help_pda_1]]),
+        tips_agr_krot_sos1                  = _get_so([[characters_voice\scenario\agroprom\krot_help_pda_2]]),
+        tips_agr_krot_sos2                  = _get_so([[characters_voice\scenario\agroprom\krot_help_pda_2]]),
+        tips_agr_stalker_help_2             = _get_so([[characters_voice\scenario\agroprom\stalker_help_2]]),
+        tips_agr_stalker_help_1             = _get_so([[characters_voice\scenario\agroprom\stalker_help_1]]),
+        tips_agr_trader_documents           = _get_so([[characters_voice\scenario\agroprom\trader_pda_1]]),
+        pass_to_1st_door                    = _get_so([[characters_voice\scenario\val\door1_password]]),
+        pass_to_2nd_door                    = _get_so([[characters_voice\scenario\val\door2_password]]),
+
+        bar_ecolog_crush_heli_down          = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_1]]),
+        bar_freedom_attack_attract_actor    = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_2]]),
+        bar_freedom_spam_1                  = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_6]]),
+        bar_freedom_spam_2                  = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_4]]),
+        bar_freedom_spam_3                  = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_3]]),
+        bar_freedom_spam_4                  = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_5]]),
+        bar_freedom_attack                  = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_7]]),
+        bar_freedom_attack_spy              = _get_so([[characters_voice\scenario\Rostok\Heli_crush\wolfhound_pda_8]]),
+        bar_ecolog_crush_start_heli         = _get_so([[characters_voice\scenario\Rostok\Heli_crush\kruglov_pda_1]]),
+        bar_ecolog_crush_attract_actor      = _get_so([[characters_voice\scenario\Rostok\Heli_crush\kruglov_pda_2]]),
+        bar_ecolog_spam_1                   = _get_so([[characters_voice\scenario\Rostok\Heli_crush\kruglov_pda_3]]),
+        bar_ecolog_spam_2                   = _get_so([[characters_voice\scenario\Rostok\Heli_crush\kruglov_pda_4]]),
+        bar_ecolog_spam_3                   = _get_so([[characters_voice\scenario\Rostok\Heli_crush\kruglov_pda_5]]),
+        bar_ecolog_spam_4                   = _get_so([[characters_voice\scenario\Rostok\Heli_crush\kruglov_pda_6]]),
+        bar_ecolog_attack                   = _get_so([[characters_voice\scenario\Rostok\Heli_crush\kruglov_pda_7]]),
+        rostok_kruglov_spam_1               = _get_so([[characters_voice\scenario\Rostok\kruglov_pda_help_1]]),
+        rostok_kruglov_spam_2               = _get_so([[characters_voice\scenario\Rostok\kruglov_pda_help_3]]),
+        bar_ecolog_escape                   = _get_so([[characters_voice\scenario\Rostok\volkodav_pda_kruglov_escape_1]]),
+        storyline_vasilyev_tip              = _get_so([[characters_voice\scenario\yantar\vasiliev_pda]]),
+        storyline_ghost_tip                 = _get_so([[characters_voice\scenario\yantar\ghost_pda]]),
+        yan_saharov_message                 = _get_so([[characters_voice\scenario\yantar\professor_to_actor_pda_3]]),
+        yan_saharov_message_2               = _get_so([[characters_voice\scenario\yantar\professor_to_actor_pda_4]]),
+        yan_saharov_message_3               = _get_so([[characters_voice\scenario\yantar\professor_to_actor_pda_5]]),
+        
+        yan_scientist_probe                 = _get_so([[characters_voice\scenario\yantar\kruglov_radiation_quest_13]]),
+        yan_scientist_probe_1               = _get_so([[characters_voice\scenario\yantar\kruglov_radiation_quest_11]]),
+        yan_scientist_probe_2               = _get_so([[characters_voice\scenario\yantar\kruglov_radiation_quest_12]]),
+        yan_scientist_probe_3               = _get_so([[characters_voice\scenario\yantar\kruglov_radiation_quest_6]]),
+
+        bar_territory_dolg_1_hit            = _get_so([[characters_voice\scenario\bar\pda\voronin_gunfire_pda_1]]),
+        bar_territory_dolg_2_hit            = _get_so([[characters_voice\scenario\bar\pda\voronin_gunfire_pda_2]]),
+        bar_territory_dolg_3_hit            = _get_so([[characters_voice\scenario\bar\pda\voronin_gunfire_pda_3]]),
+        bar_territory_dolg_kill             = _get_so([[characters_voice\scenario\bar\pda\voronin_gunfire_pda_4]]),
+
+        tips_bun_komand                     = _get_so([[characters_voice\scenario\bun\patrol_prikaz]]),
+
+        general_ecolog_tip_1                = _get_so([[characters_voice\scenario\yantar\professor_to_actor_pda_1]]),
+        general_ecolog_tip_2                = _get_so([[characters_voice\scenario\yantar\professor_to_actor_pda_2]]),
+
+        tips_gar_hellcar_alarm              = _get_so([[characters_voice\scenario\garbage\neutrals_commander_pda_1]]),
+        gar_dolg_blokpost_warning           = _get_so([[characters_voice\scenario\duty\duty_warning1]]),
+        gar_dolg_monster_rush               = _get_so([[characters_voice\scenario\duty\duty_request1]]),
+        gar_direction_fire                  = _get_so([[characters_voice\scenario\garbage\junkyard_combat_ambush]]),
+        gar_hellcar_victory                 = _get_so([[characters_voice\scenario\garbage\junkyard_combat_end]]),
+        gar_actor_looser                    = _get_so([[characters_voice\scenario\garbage\duty_after_rush_bad]]),
+        gar_actor_normal                    = _get_so([[characters_voice\scenario\garbage\duty_after_rush_normal]]),
+        gar_actor_winner                    = _get_so([[characters_voice\scenario\garbage\duty_after_rush_good]]),
+
+        esc_direction_fire                  = _get_so([[characters_voice\scenario\escape\lager_fanat_attack]]),
+        esc_fanat_victory                   = _get_so([[characters_voice\scenario\escape\lager_fanat_victory]]),
+
+        rad_barman_spam                     = _get_so([[characters_voice\scenario\radar\rad_barman_message]]),
+
+        val_monolith_trader_pda1            = _get_so([[characters_voice\scenario\val\trader_dialog1]]),
+        o_soznanie_text                     = _get_so([[characters_voice\scenario\sarcofag\o_soznanie_call]]),
+    }
+
+    pda_sounds = {
+        news                                = _get_so([[device\pda\pda_news]]),
+        tip                                 = _get_so([[device\pda\pda_tip]]),
+        task                                = _get_so([[device\pda\pda_objective]]),
+        sos                                 = _get_so([[device\pda\pda_sos]]),
+        info                                = _get_so([[device\pda\pda_info]]),
+        nosound                             = _get_so([[$no_sound]]),
+    }
+    
+    action_descr_by_type = {
+        new                     = game.translate_string("general_new_task"),
+        update                  = game.translate_string("general_update_task"),
+        complete                = game.translate_string("general_complete_task"),
+        fail                    = game.translate_string("general_fail_task"),
+    }
+    loaded = true
+    log('init:[>]')
+end
+--//-------------------------
+function presets()
+    assert(loaded, 'not init!')
+    
+    event("article_received"):register(article_received)
+end
+function article_received(e)
+    if e.group == 'tutorial' then return end
+    send_article(e.group, e.name, e.type)
+end
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+senders_icons = {
+    --//%+% SHoC
+    --// ui_iconstotal(original)
+    actor           = {415,940},     --// меченый
+    default         = {0,658},         --// дефолт/сталкеры/свобода
+    money_lenin     = {0,0},         --// деньги
+    money_wood      = {0,423},         --// деньги
+    trader          = {332,893},     --// сидорович
+    barman          = {332,235},     --// бармен
+    soldier         = {332,0},         --// рядовой/солдат/армия
+    comander_1      = {332,94},     --// командиры всякие
+    comander_2      = {415,470},
+    comander_3      = {415,517},
+    comander_4      = {415,564},
+    kuznetsov       = {332,752},     --// кузнецов/ командер_5
+    freedom         = {0, 658},     --// дефолт/сталкеры/свобода
+    kruglov         = {498, 0},     --// ученый в зеленом комбезе
+    ecolog          = {249, 705},     --// ученый в рыжем комбезе
+    arni            = {332, 141},     --// арни
+    stalker         = {0, 658},     --// дефолт/сталкеры/свобода
+    krot            = {332, 47},     --// крот
+    info            = {82, 282},     --// информация
+    wolf            = {332, 940},     --// волк
+    petrenko        = {332, 376},     --// петренко
+    o_soznanie      = {498, 893},     --// осознанец
+    monolith        = {0, 658},     --// дефолт/сталкеры/свобода
+    saharov         = {332, 470},     --// профессор сахаров
+    prizrak         = {415, 705},     --// призрак
+    ara             = {415, 423},     --// ара
+    security        = {332, 188},     --// охранник в баре
+    miser           = {415, 376},     --// скряга
+    borov           = {332, 564},     --// боров
+    volkodav        = {332, 517},     --// волкодав
+    mask_1          = {332, 611},     --// сталкер в балаклаве
+    mask_2          = {332, 658},     --// сталкер в балаклаве
+    --// ui_iconstotal(added)
+    --//%+% CoP
+    --// ui_actor_newsmanager_icons(original)
+    pioneer                     = "ui_inGame2_PD_Pervootkrivatel",
+    mutant_hunter               = "ui_inGame2_PD_Ohotnik_na_mutantov",
+    detective                   = "ui_inGame2_PD_Sisshik",
+    one_of_the_lads             = "ui_inGame2_PD_Svoy_paren",
+    kingpin                     = "ui_inGame2_PD_Avtoritet",
+    herald_of_justice           = "ui_inGame2_PD_Gonets_pravosudiya",
+    seeker                      = "ui_inGame2_PD_Iskatel",
+    battle_systems_master       = "ui_inGame2_PD_master_boevih_sistem",
+    high_tech_master            = "ui_inGame2_PD_Master_visokih_technologiy",
+    skilled_stalker             = "ui_inGame2_PD_Opitniy_stalker",
+    leader                      = "ui_inGame2_PD_Lider",
+    diplomat                    = "ui_inGame2_PD_Diplomat",
+    research_man                = "ui_inGame2_PD_Nauchniy_sotrudnik",
+    friend_of_duty              = "ui_inGame2_PD_Drug_Dolga",
+    friend_of_freedom           = "ui_inGame2_PD_Drug_Swobodi",
+    balance_advocate            = "ui_inGame2_PD_storonnik_ravnovesiya",
+    wealthy                     = "ui_inGame2_PD_Sostoyatelniy_klient",
+    keeper_of_secrets           = "ui_inGame2_PD_Hranitel_tayn",
+    marked_by_zone              = "ui_inGame2_PD_Otmecheniy_zonoy",
+    information_dealer          = "ui_inGame2_PD_Torgovets_informatsiey",
+    friend_of_stalkers          = "ui_inGame2_PD_Drug_Stalkerov",
+    got_artefact                = "ui_inGame2_D_gonets_pravosudiya",
+    got_ammo                    = "ui_inGame2_D_Ohotnik_na_mutantov",
+    got_medicine                = "ui_inGame2_D_Sisshik",
+    got_duty_light_armor        = "ui_inGame2_D_Vipolnil_2_zadaniya_dlya_Dolga",
+    got_duty_heavy_armor        = "ui_inGame2_D_Vipolnil_4_zadaniya_dlya_Dolga",
+    got_freedom_light_armor     = "ui_inGame2_D_Vipolnil_2_zadaniya_dlya_Swobodi",
+    got_freedom_heavy_armor     = "ui_inGame2_D_Vipolnil_4_zadaniya_dlya_Swobodi",
+    can_resupply                = "ui_inGame2_Pered_zadaniyami_voennih",
+    recent_surge                = "ui_inGame2_V_zone_nedavno_proshel_vibros",
+}
+local get_sender_icon_data = function(sender, texture)
+    if not (is_string(sender) or is_userdata(sender)) then
+        --// бывают случаи (н-р sr_tip), когда сендер попросту никак не передается, не могу судить насколько это правильно, но счел должным оповестить под дебагом об этом недочете
+        log('incorrect type of input argument (%s value), change to "default", <Warning!>', type(sender)) 
+        sender = "default"
+    end
+    local texture, rect = texture or "ui\\ui_iconsTotal", nil
+    if is_string(sender) then
+        if not senders_icons[sender] then sender = "default" end
+        local icon = senders_icons[sender]
+        if is_table(icon) then
+            local x = icon[1]
+            local y = icon[2]
+            local width = icon[3]
+            local heith = icon[4]
+            texture = icon.texture or texture --// для совсем уникальных иконок
+            if heith == nil then heith = 47 end
+            if width == nil then width = 83 end
+            rect = Frect():set(x,y,width,heith)
+        elseif is_string(icon) then
+            texture, rect = get_texture_info(icon)
+        end
+    end
+    if is_userdata(sender) and (IsHuman(sender) or IsMonster(sender)) then
+        texture, rect = get_texture_info(sender:character_icon())
+    end
+    return texture, rect
+end
+
+local base_send_function = function(header, text, sender, texture, timeout, timeshow, sound, no_pda_snd)
+    if not (type(text) == 'string' and actor) then return false end
+    if type(header)       ~= 'string' then header = game.translate_string("st_tip") end
+    if type(timeout)      ~= 'number' then timeout  = 0 end
+    if type(timeshow)     ~= 'number' then timeshow = 5 end
+    local snd = (sound and pda_sounds[sound]) or pda_sounds.tip
+    if snd and not no_pda_snd then
+        snd:play(actor, timeout, sound_object.s2d)
+        local length = snd:length()
+        if length > (timeshow*1000) then
+            timeshow = length/1000
+        end
+    end
+    if news_sounds[text] then
+        timeout = timeout+1
+        news_sounds[text]:play(actor, timeout, sound_object.s2d)
+        local length = news_sounds[text]:length()
+        if length > (timeshow*1000) then
+            timeshow = length/1000
+        end
+    end
+    local texture, rect = get_sender_icon_data(sender, texture)
+    if header == "" then
+        text = game.translate_string(text) --// сообщение без хидера покрасить можно
+    else
+--// Karlan->Karlan: придумать что-то более вменяемое для раскрашивания хидера и сообщения (хидер нормально вроде, сообщение пока вообще нет возможности покрасить)
+        --// 1
+        local clr = header:match('|clr:(%a+)$')
+        if clr then 
+            header = header:sub(1, #header-(#clr+5)) --// хвост отрубим в любом случае, даже если цвета нет
+            if is_string(colors[clr]) then
+                header = colors[clr]..header
+            else
+                warning("current color (%s) doesn't exist in colors, change to gray", clr)
+                header = colors.gray..header
+            end
+        else
+            header = colors.gray..header
+        end
+        --// 2
+        --// в случае если имеется ввиду не цвет, то этот вариант не будет красить хидер в дефолтный цвет при наличии %c[blablabla...
+        -- local clr = header:match('^%s*%%c%[([%a%d]+)')
+        -- header = (clr and #clr>=3) and header or colors.gray..header
+        header = game.translate_string(header)
+        if text ~= "" then
+            text = header.."\\n".."%c[default]"..game.translate_string(text)
+        else
+            text = header
+        end
+    end
+    if actor:is_talking() then
+        actor:give_talk_message(text, texture, rect, "iconed_answer_item")
+    else
+        actor:give_game_news(text, texture, rect, timeout*1000, timeshow*1000)
+    end
+    return true
+end
+
+local base_send_predicat = function(sender_id)
+    if sim and (is_string(sender_id) or is_number(sender_id)) then
+        local npc = is_number(sender_id) and sim:story_object(sender_id) or sim:object(sender_id)
+        if npc then
+            if npc.online then
+                if ai_wounded.is_heavy_wounded_by_id(npc.id) then --// в онлайне проверяем на раненность
+                    log("cannot send tips [%s], sender is heavy wounded", tostring(news_id))
+                    return false
+                end
+            end
+            -- if not npc:alive() then --// в других случаях только на смерть (return !!m_fHealth>0)
+                -- log("cannot send tips [%s], sender is dead", tostring(news_id))
+                -- return false
+            -- end
+        end
+        return true
+    else
+        abort("error in base_send_predicat, sim is %s, type sender_id = [%s]", sim~=nil, type(sender_id))
+        return false
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+function send_new(header, text, sender, texture, timeout, timeshow, sound, no_pda_snd)
+    base_send_function(header, text, sender, texture, timeout, timeshow, sound, no_pda_snd)
+end
+--//-----------------------------------------------------------------
+--// Функции для поддержки оригинального функционала
+--//-----------------------------------------------------------------
+function send_message(message, timeout, sender, timeshow, sender_id)
+    log('send_message:message = %s, to = %s, sender = %s', message, timeout, sender)
+    if not message then return log('not message (a %s value), <%s!>', type(message), 'Warning') end
+    if sender_id and not base_send_predicat(sender_id) then return false end
+    timeshow = tonumber(timeshow) and timeshow/1000
+    base_send_function(nil, message, sender, nil, timeout, timeshow)
+    return true
+end
+
+--// Rulix: типсы убраны, функция более не используется
+--// довольно странная функция, исходное название не совпадает с начинкой
+--// таймаут занулялся в любом случае, так или иначе, например, в rostok_kruglov_attract_2 передается недопустимое значение, которое делает очень долгий таймаут
+--// таймаут переделан на штатную работу, указывать его чаще всего будет не нужно, сендер удален за ненадобностью (так как сообщения тут нет вообще)
+--// как я думаю, эта функция сделана для тех мест, где надо синхронизировать речь нпса с треком в голове актора, чтобы создавалось ощущение переговоров по радио-связи, только у меня возникают некоторые сомнения по этому поводу, так как такая фишка используется во многих местах, но реализована по разному
+-- function send_sound_without_text(message, timeout)
+    -- log('send_sound_without_text:message = %s, to = %s', message, timeout)
+    -- if not message then return log('not message (a %s value), <%s!>', type(message), 'Warning') end
+    -- timeout = tonumber(timeout) or 0
+    -- pda_sounds.tip:play(actor, timeout, sound_object.s2d)
+    -- if news_sounds[message] then
+        -- timeout = timeout+1
+        -- news_sounds[message]:play(actor, timeout, sound_object.s2d)
+    -- end
+    -- return true
+-- end
+
+--// TODO: далее целесообразно сначала переписать все системы, которые запрашивают нижеприведенные функции
+--//-----------------------------------------------------------------------------------------------
+--// TODO: когда буду переписывать не забыть отрубить всякие звуки и месаджи если пда у нас не активирован, а точнее вообще вырубать передачу всякой информации
+function send_task(actor, type, task, objective)
+    -- if actor == nil then return false end
+    
+    --' Берем координаты из текстуры таска
+    local task_texture, task_rect = get_texture_info("ui_iconsTotal_"..task:get_id(), "ui_iconsTotal_locations")
+        
+    --' Играем дефолтный звук
+    pda_sounds.task:play(actor, 0, sound_object.s2d)
+
+    local news_text = action_descr_by_type[type].."\\n%c[default]"..game.translate_string(task:get_title())
+    local news_text2 = colors.tasks[type]..news_text --// Karlan: чтобы не окрашивался статик, а то некрасиво
+    if actor:is_talking() then
+        actor:give_talk_message(news_text2, task_texture, task_rect, "iconed_answer_item")
+    else
+        actor:give_game_news(news_text2, task_texture, task_rect, 0, 3000)
+    end    
+
+    if type == "new" 
+    or type == "update"
+    then
+        if task:get_objectives_cnt() == objective:get_idx()+1 then return end --// Karlan: для последнего не показываем
+        news_text = game.translate_string(task:get_objective(objective:get_idx() + 1):get_description())
+    end
+
+    local hud = get_hud()
+    hud:AddCustomStatic("main_task", true)
+    hud:GetCustomStatic("main_task"):wnd():SetTextST(news_text)
+    hud:GetCustomStatic("main_task").m_endTime = time_global()/1000 + 5
+    if type ~= "new" then return end
+    if PROSECTORS_DEBUG then save_trigger('task start ['..news_text..']') end
+    hud:AddCustomStatic("secondary_task", true)
+    hud:GetCustomStatic("secondary_task"):wnd():SetTextST(task:get_description())
+    hud:GetCustomStatic("secondary_task").m_endTime = time_global()/1000 + 5
+end
+--// Karlan: отсюда опять стартует переделанный код
+local article_type_data = {
+    ['Diary']               = 'Заметка в журнале:',
+    ['st_operation_agroprom']   = 'Заметка в журнале:',
+    ['LabX18_information']      = 'Заметка в журнале:',
+    ['aes_military_task']       = 'Заметка в журнале:',
+    ['Mutants']             = 'Заметка в мутантах:',
+    ['Social']              = 'Информация о группировке:',
+    ['Artifacts']           = 'Заметка об артефактах:',
+    ['Anomalies']           = 'Заметка об аномалиях:',
+    ['Locations']           = 'Информация о локации:',
+    ['Zone-story']          = 'История Зоны:',
+    ['Stories']             = 'Местный фольклор:',
+    ['memuars']             = 'Личная заметка:',
+    ['Found_PDA']           = 'Скачаны данные:',
+    ['agr_find_ghost/0']    = 'Скачаны данные:',
+}
+function send_article(group, name, type)
+    log('group = [%s] name = [%s] type = [%s]', group, name, type)
+    local header = (type == 2) and colors.lemon..'Приложение к заданию:' or nil
+    header = article_type_data[group] and colors.lemon..article_type_data[group] or header
+    base_send_function(header, game.translate_string(name), 'info', nil, 0, 7, 'info')
+end
+function send_debug(fmt, ...)
+    base_send_function('Debug:', make_string(fmt, ...), 'info', nil, 0, 1, 'nosound')
+end
+function send_treasure(name, cop_style, level)
+    pda_sounds.news:play(actor, 0, sound_object.s2d)
+    local id_texture = cop_style and "ui_inGame2_Polucheni_koordinaty_taynika" or "ui_iconsTotal_found_thing"
+    local task_texture, task_rect = get_texture_info(id_texture)
+    local news_text = colors.lemon..game.translate_string("st_found_new_treasure")..level.."»:\\n".."%c[default]"..game.translate_string(name)
+    if actor:is_talking() then --// Karlan: а то как-то криво смотрится когда нам в награду тайник дают и он у нас висит на худе
+        actor:give_talk_message(news_text, task_texture, task_rect, "iconed_answer_item")
+    else
+        actor:give_game_news(news_text, task_texture, task_rect, 0, 3000)
+    end    
+end
+function relocate_item(type, obj, amount, cop_style)
+    local tail, id_texture, news_text = (math.is_positive(amount) and amount>1) and " - "..tostring(amount).."шт." or ""
+    if type == "in" then
+        id_texture = cop_style and "ui_inGame2_Predmet_poluchen" or "ui_iconsTotal_found_thing"
+        news_text = colors.green..game.translate_string("general_in_item").."\\n".."%c[default]"..get_string_name(obj)..tail     
+    elseif type == "out" then
+        id_texture = cop_style and "ui_inGame2_Predmet_otdan" or "ui_iconsTotal_lost_thing"
+        news_text = colors.red..game.translate_string("general_out_item").."\\n".."%c[default]"..get_string_name(obj)..tail  
+    end
+    local task_texture, task_rect = get_texture_info(id_texture) 
+    if actor:is_talking() then
+        actor:give_talk_message(news_text, task_texture, task_rect, "iconed_answer_item")
+    else
+        actor:give_game_news(news_text, task_texture, task_rect, 0, 3000)
+    end     
+end
+function relocate_money(type, amount, cop_style)
+    local id_texture, news_text
+    if type == "in" then
+        id_texture = cop_style and "ui_inGame2_Dengi_polucheni" or "ui_iconsTotal_found_money"
+        news_text = colors.green..game.translate_string("general_in_money").."\\n".."%c[default]"..game.translate_string(tostring(amount)).." руб."
+    elseif type == "out" then
+        id_texture = cop_style and "ui_inGame2_Dengi_otdani" or "ui_iconsTotal_lost_money"
+        news_text = colors.red..game.translate_string("general_out_money").."\\n".."%c[default]"..game.translate_string(tostring(amount)).." руб."
+    end
+    local task_texture, task_rect = get_texture_info(id_texture) 
+    if actor:is_talking() then
+        actor:give_talk_message(news_text, task_texture, task_rect, "iconed_answer_item")
+    else
+        actor:give_game_news(news_text, task_texture, task_rect, 0, 3000)
+    end   
+end

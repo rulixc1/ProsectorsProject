@@ -1,0 +1,613 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_wounded.script
+ Description: схема раненного
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Диденко Руслан (Stohe)
+ Edited     : Karlan / Rulix
+--]] ----------------------------------------------------------------------------------------------
+help_medkits = {'medkit','medkit_army','medkit_scientic'}
+---------------------------------------------------------------------------------------------------------------------
+--Evaluators
+----------------------------------------------------------------------------------------------------------------------
+class "evaluator_wound" (property_evaluator)
+function evaluator_wound:__init(storage, name) super(nil, name)
+	self.wm = storage.wound_manager
+end
+function evaluator_wound:evaluate ()
+	if self.object:critically_wounded() == true then
+		return false
+	end
+
+	if not self.wm.actual then
+		self.wm:update()
+	end
+
+	if self.wm.fight and self.object:best_enemy() then
+		return false
+	end
+
+	return self.wm.state ~= "nil"
+end
+
+class "evaluator_can_fight" (property_evaluator)
+function evaluator_can_fight:__init(storage, name) super(nil, name)
+	self.wm = storage.wound_manager
+end
+function evaluator_can_fight:evaluate ()
+	if self.object:critically_wounded() == true then
+		return true
+	end
+	if not self.wm.actual then
+		self.wm:update()
+	end
+	return self.wm.fight == true
+end
+
+----------------------------------------------------------------------------------------------------------------------
+--Actions
+----------------------------------------------------------------------------------------------------------------------
+class "action_wounded" (action_base)
+function action_wounded:__init(storage,dbst,name) super(nil, name)
+    self.a = storage
+	self.dbst = dbst
+	self.cover_check_time = -1
+end
+function action_wounded:initialize ()
+    action_base.initialize (self)
+    self.object:set_desired_position()
+    self.object:set_desired_direction()
+
+    if self.a.help_start_dialog then
+        self.object:set_start_dialog(self.a.help_start_dialog)
+    end
+
+    self.object:take_items_enabled(false) --// Karlan: пока оставлю, оказалось то все просто было, но так, для подстраховки
+    block_trade(self.object, true)
+    self.object:wounded(true)
+	self.object:digressive(true)
+end
+function action_wounded:execute ()
+    action_base.execute (self)
+    local wound_manager = self.a.wound_manager
+
+    if self.object:relation(actor) == game_object.enemy then
+        self.object:disable_talk()
+    else
+        self.object:enable_talk()
+    end
+
+    local wound_manager_state = wound_manager.state
+    local wound_manager_sound = wound_manager.sound
+
+    local synsound = nil
+    if wound_manager_state == "true" then
+        local h = hit()
+        h.power = 0
+        h.direction = self.object:direction()
+        h.bone = "bip01_spine"
+        h.draftsman = actor
+        h.impulse = 0
+        h.type = hit.wound
+        self.object:hit(h)
+    else
+        -- является ли текущий звук синхронным для текущего стейта
+        for k,v in pairs(self.a.syndata) do
+            if v.state == wound_manager_state and v.sound == wound_manager_sound then
+                synsound = wound_manager_sound
+            end
+        end
+        --' жрание аптечек и прочей срани.
+        --' Использовать можно только если нам можно сейчас есть аптечку.
+        if self.a.use_medkit == true and wound_manager.can_use_medkit then
+            wound_manager:eat_medkit()
+        end
+
+		--' Хромаем ковыляем в укрытие
+		if wound_manager.cover and self:take_cover() then
+			self.object:wounded(false)
+			return
+		end
+
+		if not self.a.wounded_section and not wound_manager_state:find("psy") then
+			--' определим, не подошел ли кто-нибудь помочь. если да, не нужно рыпаться и причитать
+			local healer = self.dbst.wounded_already_selected and level.object_by_id(self.dbst.wounded_already_selected)
+			if healer and healer:position():distance_to_sqr(self.object:position()) < 25 or db.actor:position():distance_to_sqr(self.object:position()) < 16 then
+				wound_manager_sound = nil
+			end
+			if wound_manager.cover and not healer and not wound_manager.can_use_medkit then
+				local enemy = self.object:best_enemy()
+				if enemy and IsMonster(enemy) then
+					wound_manager_state = "wounded_monser"
+					wound_manager_sound = nil
+				elseif not enemy then
+					wound_manager_state = "wounded_wait"
+				end
+				self.object.health = 0.00003	-- автовосстановление в кавере
+			end
+		end
+
+        local emerg = nil
+        if wound_manager_state == "psy_shoot" then
+            emerg = {animation = true}
+        end
+        state_mgr.set_state(self.object, wound_manager_state, nil, nil, nil, emerg, synsound)
+    end
+
+	if synsound == nil and wound_manager_sound ~= nil then
+		-- нужно отыграть фоновый
+		m_sound.set_sound_play(self.object, wound_manager_sound)
+		self.sound = true
+	elseif self.sound then
+		-- нужно зарубить фоновый
+		m_sound.stop_sound_play(self.object,1)
+		self.sound = nil
+	end
+
+    if self.dbst.active_scheme and not self.object:is_talking() then
+		xr_logic.try_switch_to_another_section(self.object, self.dbst[self.dbst.active_scheme])
+    end
+
+	self.object:wounded(true)
+end
+function action_wounded:take_cover()
+	local npc = self.object
+	if self.cover_vid == false then
+		return false
+	end
+	if self.a.wound_manager.fight == "true" then
+		self.cover_vid = nil
+		return false
+	end
+	if self.cover_check_time > time_global() then
+		return false
+	end
+	local enemy = npc:best_enemy()
+	if not enemy then
+		self.cover_check_time = time_global() + 5500
+		self.cover_vid = nil
+		return false
+	end
+	-- скорая подъехала - расслабиться
+	if self.dbst.wounded_already_selected then
+		local healer = level.object_by_id(self.dbst.wounded_already_selected)
+		if healer and healer:position():distance_to_sqr(npc:position()) < 25 then
+			self.cover_check_time = time_global() + 7500
+			self.cover_vid = nil
+			return false
+		end
+	end
+	if self.enemy_id ~= enemy:id() then
+		self.enemy_id = enemy:id()
+		self.cover_vid = nil
+	end
+	local npc_pos,enemy_pos = npc:position(),enemy:position()
+	local dist = npc_pos:distance_to(enemy_pos)
+	if IsStalker(enemy) then
+		if enemy:is_stalker() and enemy:see(npc) or dist < 12 then
+			self.cover_check_time = time_global() + 11500
+			self.cover_vid = nil
+			return false
+		end
+		if not self.cover_vid then
+			local cover = npc:best_cover(npc_pos,enemy_pos,math.min(dist+2,26),dist*1.05,200)
+			if cover then
+				self.cover_pos = cover:position()
+				self.cover_vid = cover:level_vertex_id()
+				npc:set_desired_direction()
+				npc:set_mental_state(anim.danger)
+				npc:set_path_type(game_object.level_path)
+				npc:set_dest_level_vertex_id(self.cover_vid)
+				state_mgr.set_state(npc,npc:id()%2 == 1 and "limping_run" or "limping_walk")
+	--			m_sound.set_sound_play(npc, "wounded_limping")
+			else
+				self.cover_check_time = time_global() + 18500
+				self.cover_vid = nil
+				return false
+			end
+		elseif not npc:accessible(self.cover_vid) or npc:level_vertex_id() == self.cover_vid or npc_pos:distance_to(self.cover_pos) < 1 then
+			self.cover_vid = false
+			return false
+		end
+		npc:set_dest_level_vertex_id(self.cover_vid)
+	else
+		if dist > 40 then
+			self.cover_check_time = time_global() + 4500
+			self.cover_vid = nil
+			return false
+		end
+		if not self.cover_vid then
+			if dist > 15 then
+				local cover = npc:best_cover(npc_pos,enemy_pos,math.min(dist+1,40),dist,200)
+				if cover then
+					self.cover_pos = cover:position()
+					self.cover_vid = cover:level_vertex_id()
+				end
+			end
+			if not self.cover_vid then
+				local npc_lvid = npc:level_vertex_id()
+				local best_dist = 0
+				local dir = vector():sub(npc_pos,enemy_pos):normalize()
+				for i,a in ipairs{0,15,-15,30,-30,50,-50} do
+					local ndir = dir:rotate_y(a)
+					local vert = npc:vertex_in_direction(npc_lvid,ndir,30)
+					if vert < INVALID_LEVEL_VERTEX_ID then
+						local ndist = level.vertex_position(vert):distance_to(enemy_pos)
+						if ndist > best_dist then
+							best_dist = ndist
+							self.cover_vid = vert
+							if ndist > 25 then
+								break
+							end
+						end
+					end
+				end
+				self.cover_pos = self.cover_vid and level.vertex_position(self.cover_vid)
+			end
+			if self.cover_vid and self.cover_vid ~= npc:level_vertex_id() then
+				npc:set_desired_direction()
+				npc:set_mental_state(anim.danger)
+				npc:set_path_type(game_object.level_path)
+				npc:set_dest_level_vertex_id(self.cover_vid)
+				state_mgr.set_state(npc,npc:id()%2 == 1 and "limping_run" or "limping_walk")	--,nil,nil,nil,{animation = true}
+			else
+				self.cover_check_time = time_global() + 4500
+				self.cover_vid = nil
+				return false
+			end
+		elseif not npc:accessible(self.cover_vid) or npc:level_vertex_id() == self.cover_vid then
+--			self.cover_check_time = time_global() + 6000
+			self.cover_vid = nil
+			return false
+		end
+	end
+	npc:set_dest_level_vertex_id(self.cover_vid)
+	return true
+end
+function action_wounded:finalize ()
+	action_base.finalize (self)
+	self.object:take_items_enabled(true)
+	block_trade(self.object, false)
+	self.object:disable_talk()
+	self.object:wounded(false)
+	self.object:digressive(false)
+	self.sound = nil
+	self.cover_vid = nil
+	if self.object:animation_count() > 0 then
+		self.object:set_body_state(move.standing)
+	end
+--	state_mgr.set_state(self.object,"idle")
+end
+
+----------------------------------------------------------------------------------------------------------------------
+local function get_key_from_hp(t,hp)
+    local key
+    for k,v in ipairs(t) do
+        if v.dist >= hp then
+            key = k
+        else
+            return key
+        end
+    end
+    return key
+end
+----------------------------------------------------------------------------------------------------------------------
+-- Class wound_manager
+----------------------------------------------------------------------------------------------------------------------
+class "Cwound_manager"
+function Cwound_manager:__init(npc, storage)
+    self.npc = npc
+    self.a = storage
+	self.state = 'nil'
+    self.can_use_medkit = false
+	ai_common.subscribe_for_events(npc:id(),self)
+end
+function Cwound_manager:update()
+	assert(self.is_set)
+	self.actual = true
+	self.fight = true
+	self.cover = false
+
+	-- проверяем на пси раненость
+	local psy = 100*self.npc.psy_health
+	self.state, self.sound = self:process_psy_wound(psy)
+	if self.state ~= 'nil' then
+		return
+	end
+
+	-- проверяем на обычную раненость
+	local hp  = 100*self.npc.health
+	self.state, self.sound = self:process_hp_wound(hp)
+	if self.state == 'nil' then
+		return
+	end
+	if self.state == '_random' then
+		self.state = random_wounded_state(self.npc)
+	end
+	self.fight	= self:process_fight(hp)
+	self.cover	= self:process_cover(hp)
+--	logc("process[%s] fight %s cover %s",self.npc:name(),self.fight,self.cover)
+end
+function Cwound_manager:unlock_medkit()
+    self.can_use_medkit = true
+end
+function Cwound_manager:eat_medkit()
+	if not self.can_use_medkit then
+		return
+	end
+	m_sound.stop_sound_play(self.npc)
+	m_sound.set_sound_play(self.npc,'help_thanx')
+	local medkit
+	for _,s in ipairs(help_medkits) do
+		medkit = self.npc:object(s)
+		if medkit then
+			self.npc:eat(medkit)
+			break
+		end
+	end
+	if medkit then
+		self.can_use_medkit = false
+	else
+		logc("~ %s cant find medkit to heal",self.npc)
+	end
+	self.actual = false
+end
+function Cwound_manager:process_fight(hp)
+    local key
+    key = get_key_from_hp(self.a.hp_fight, hp)
+    if key ~= nil then
+        if self.a.hp_fight[key].state then
+            return xr_logic.pick_section_from_condlist(self.npc, self.a.hp_fight[key].state) == "true"
+        end
+    end
+    return true
+end
+function Cwound_manager:process_cover(hp)
+	local key = get_key_from_hp(self.a.hp_cover, hp)
+	if key ~= nil then
+		if self.a.hp_cover[key].state then
+			return xr_logic.pick_section_from_condlist(self.npc, self.a.hp_cover[key].state) == "true"
+		end
+	end
+	return false
+end
+function Cwound_manager:process_hp_wound(hp)
+    local key
+    key = get_key_from_hp(self.a.hp_state, hp)
+    if key ~= nil then
+        local r1,r2
+        if self.npc:see(actor) then
+            if self.a.hp_state_see[key].state then
+                r1 = xr_logic.pick_section_from_condlist(self.npc, self.a.hp_state_see[key].state)
+            end
+            if self.a.hp_state_see[key].sound then
+                r2 = xr_logic.pick_section_from_condlist(self.npc, self.a.hp_state_see[key].sound)
+            end
+        else
+            if self.a.hp_state[key].state then
+                r1 = xr_logic.pick_section_from_condlist(self.npc, self.a.hp_state[key].state)
+            end
+            if self.a.hp_state[key].sound then
+                r2 = xr_logic.pick_section_from_condlist(self.npc, self.a.hp_state[key].sound)
+            end
+        end
+        return tostring(r1),r2
+    end
+    return "nil",nil
+end
+function Cwound_manager:process_psy_wound(hp)
+    local key
+    key = get_key_from_hp(self.a.psy_state, hp)
+    if key ~= nil then
+        local r1,r2
+        if self.a.psy_state[key].state then
+            r1 = xr_logic.pick_section_from_condlist(self.npc, self.a.psy_state[key].state)
+        end
+        if self.a.psy_state[key].sound then
+            r2 = xr_logic.pick_section_from_condlist(self.npc, self.a.psy_state[key].sound)
+        end
+        return tostring(r1),r2
+    end
+    return "nil",nil
+end
+function Cwound_manager:hit_callback()
+	log("Cwound_manager[%s]:hit_callback()",self.npc:name())
+	self.actual = false
+end
+
+----------------------------------------------------------------------------------------------------------------------
+-- binder
+----------------------------------------------------------------------------------------------------------------------
+function add_to_binder (npc, ini, scheme, section, st)
+	local dbst = db.storage[npc:id()]
+	st.wound_manager = Cwound_manager(npc, st)
+
+    local operators     = {}
+    local properties    = {}
+
+    properties["wounded"]       =   evaluators_id.sidor_wounded_base
+    properties["can_fight"]     =   evaluators_id.sidor_wounded_base + 1
+
+    operators["wounded"]        =   actions_id.sidor_act_wounded_base
+
+    local manager = npc:motivation_action_manager()
+    manager:add_evaluator (properties["wounded"],        this.evaluator_wound(st,"wounded"))
+    manager:add_evaluator (properties["can_fight"],      this.evaluator_can_fight(st,"can_fight"))
+
+    local action = this.action_wounded(st,dbst,"wounded_action")
+    action:add_precondition (world_property(properties["wounded"],   true))
+	if evaluators_id.bandage then
+		action:add_precondition(world_property(evaluators_id.bandage,false))
+	end
+    action:add_effect (world_property(properties["wounded"],         false))
+    action:add_effect (world_property(stalker_ids.property_enemy,    false))
+    action:add_effect (world_property(properties["can_fight"],       true))
+    manager:add_action      (operators["wounded"], action)
+
+    action = manager:action (actions_id.alife)
+    action:add_precondition (world_property(properties["wounded"],   false))
+
+    action = manager:action (stalker_ids.action_gather_items)
+    action:add_precondition (world_property(properties["wounded"],   false))
+
+    action = manager:action (stalker_ids.action_combat_planner)
+    action:add_precondition (world_property(properties["can_fight"], true))
+
+    action = manager:action (stalker_ids.action_danger_planner)
+    action:add_precondition (world_property(properties["wounded"],   false))
+
+    action = manager:action (stalker_ids.action_anomaly_planner)
+    action:add_precondition (world_property(properties["wounded"],   false))
+end
+
+------------
+-- Вызывается только в начале на чтении логики, создает экшены, эвалуаторы и производит
+-- первичную настройку.
+function set_scheme(npc)
+    xr_logic.assign_storage_and_bind(npc,nil,'wounded')
+end
+-- Вызывается на переключении на новую секцию. Производит вычитывание настроек из текущей секции.
+function reset_scheme(npc, scheme, st, section)
+    local wounded_section
+    if section and st.ini:line_exist(section,"wounded") then
+        wounded_section = cfg_get_string(st.ini, section, "wounded")
+    else
+        wounded_section = cfg_get_string(st.ini, st.section_logic, "wounded")
+    end
+	log("reset_wounded[%s] section %s wounded_section %s",npc:name(),section,wounded_section or '<nil>')
+    init_wounded(npc, st.ini, wounded_section, st.wounded)
+end
+
+------------
+local wounded_by_state = {
+    [0] = "wounded_heavy",
+    [1] = "wounded_heavy_2",
+    [2] = "wounded_heavy_3"
+}
+function random_wounded_state(npc)
+	return wounded_by_state[math.mod(npc:id(),3)]
+end
+
+local profile_data = {
+	monolith = {
+		hp_state            = "12|_random@help_heavy",
+		hp_state_see        = "12|_random@help_heavy",
+		psy_state           = "",
+		hp_cover            = "100|true|10|false",
+		hp_fight            = "100|false",
+		syndata             = "",
+		help_dialog         = nil,
+		help_start_dialog   = nil,
+		use_medkit          = nil,
+		not_for_help        = nil
+	},
+	zombied = {
+		hp_state            = "40|wounded_zombie@help_heavy_zombie",
+		hp_state_see        = "40|wounded_zombie@help_heavy_zombie",
+		psy_state           = "",
+		hp_cover            = "100|false",
+		hp_fight            = "100|false",
+		syndata             = "",
+		help_dialog         = nil,
+		help_start_dialog   = nil,
+		use_medkit          = nil,
+		not_for_help        = true
+	},
+	disabled = {
+		hp_state            = "",
+		hp_state_see        = "",
+		psy_state           = "",
+		hp_cover            = "",
+		hp_fight            = "",
+		syndata             = "",
+		help_dialog         = nil,
+		help_start_dialog   = nil,
+		use_medkit          = nil,
+		not_for_help        = nil
+	},
+	default = {
+		hp_state            = "20|_random@help_heavy",
+		hp_state_see        = "20|_random@help_heavy",
+		psy_state           = "50|{=best_pistol}psy_armed,psy_pain@wounded_psy|20|{=best_pistol}psy_shoot,psy_pain@{=best_pistol}wounded_psy_shoot,wounded_psy",
+		hp_cover            = "100|true|10|false",
+		hp_fight            = "100|false",
+		syndata             = "",
+		help_dialog         = "dm_help_wounded_medkit_dialog",
+		help_start_dialog   = nil,
+		use_medkit          = true,
+		not_for_help        = nil
+	},
+}
+for k,v in pairs(profile_data) do
+	v.hp_state		= parse_data(_,v.hp_state)
+	v.hp_state_see	= parse_data(_,v.hp_state_see)
+	v.psy_state		= parse_data(_,v.psy_state)
+	v.hp_cover		= parse_data(_,v.hp_cover)
+	v.hp_fight		= parse_data(_,v.hp_fight)
+	v.syndata		= parse_syn_data(_,v.syndata)
+end
+
+-- Функция чтения настроек. В нее передается секция, откуда их нужно читать.
+function init_wounded(npc, ini, section, st)
+	if section and section == st.wounded_section then --// Karlan: учитывая что функция ставит <nil> то это конечно, да
+		return
+	end
+	st.wounded_section = section
+
+	if section == nil then
+		-- Загружаем дефолты!
+		for k,v in pairs(profile_data[npc:character_community()] or profile_data.default) do
+			st[k] = v
+		end
+    elseif profile_data[section] then
+		for k,v in pairs(profile_data[section]) do
+			st[k] = v
+		end
+    else
+		local def			= profile_data[npc:character_community()]	or profile_data.default
+		st.hp_state			= ini:line_exist(section,'hp_state')		and parse_data(npc,ini:r_string(section,'hp_state'))		or def.hp_state
+		st.hp_state_see		= ini:line_exist(section,'hp_state_see')	and parse_data(npc,ini:r_string(section,'hp_state_see'))	or def.hp_state_see
+		st.psy_state		= ini:line_exist(section,'psy_state')		and parse_data(npc,ini:r_string(section,'psy_state'))		or def.psy_state
+		st.hp_cover			= ini:line_exist(section,'hp_cover')		and parse_data(npc,ini:r_string(section,'hp_cover'))		or def.hp_cover
+		st.hp_fight			= ini:line_exist(section,'hp_fight')		and parse_data(npc,ini:r_string(section,'hp_fight'))		or def.hp_fight
+		st.syndata			= ini:line_exist(section,'syndata')			and parse_syn_data(npc,ini:r_string(section,'syndata'))		or def.syndata
+		st.help_dialog		= cfg_get_string(ini, section, "help_dialog", def.help_dialog)
+		st.help_start_dialog= cfg_get_string(ini, section, "help_start_dialog", nil)
+		st.use_medkit		= cfg_get_bool(ini, section, "use_medkit", def.use_medkit)
+		st.not_for_help		= cfg_get_bool(ini, section, "not_for_help", def.not_for_help)
+	end
+
+	st.wound_manager.is_set = true
+	st.wound_manager.actual = false
+end
+
+------------
+function get_wound_manager(npc)
+	local st = npc:binded_object().st.wounded
+    return st and st.wound_manager
+end
+function unlock_medkit(npc)
+	local st = npc:binded_object().st.wounded
+    if st then
+        st.wound_manager:unlock_medkit()
+    end
+end
+function is_wounded(npc)
+	local st = npc:binded_object().st.wounded
+    return st and tostring(st.wound_manager.state) ~= "nil"
+end
+function is_heavy_wounded_by_id(npc_id)
+	local st = db.storage[npc_id].wounded
+    return st and st.wound_manager.state ~= "nil"
+end
+function wounded_cover(npc_id)
+	local st = db.storage[npc_id].wounded
+    return st and st.wound_manager.cover
+end
+function wounded_fight(npc_id)
+	local st = db.storage[npc_id].wounded
+    return st and st.wound_manager.fight
+end
+function is_psy_wounded_by_id(npc_id)
+	local st = db.storage[npc_id].wounded
+    return st and st.wound_manager.state:find("psy")
+end

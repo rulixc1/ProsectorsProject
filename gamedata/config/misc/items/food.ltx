@@ -1,0 +1,78 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;    FOOD
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+[food_base]:eatable_item
+class                   = II_FOOD
+script_binding          = m_items.bind_eat
+use_sound               = interface\inv_food
+attach_bone_name        = bip01_r_hand
+detach_on_death_prb     = 0.7
+position_offset         = 0.0,0.0,0.0
+angle_offset            = 1.570790,1.570790,3.92699
+; Дополнительные параметры позволяют проиграть анимацию или эффект после использования итема
+; Не цикличны (!) Пишите мне в личку если надо добавить флаг цикличности, я счел это пустой затеей
+; Должны находится по пути gamedata/anims/item_effects, указывать без(!) расширения, пример:
+; Номер ppe эффекта - 1888, номер anm эффекта - 1889
+;use_anm = my_test_anm
+;use_ppe = my_test_ppe
+
+[bread]:food_base
+$spawn                  = "food and drugs\bread"
+visual                  = weapons\bred\bred.ogf
+inv_name                = Bread
+inv_name_short          = Bread
+description             = enc_equipment_food_bread1
+inv_grid_x              = 23
+inv_grid_y              = 4
+cost                    = 20
+inv_weight              = 0.3
+inv_volume              = 0.385
+;--// Так как II_FOOD потомок II_ATTCH, то целесообразно bread делать атачабельным сразу, а не множить ненужные секции
+attach_angle_offset     = -0.287979, 1.560923, 1.544060
+attach_position_offset  = 0.096910, -0.013594, 0.107925
+
+boost_time              = 5.0
+boost_health_restore    = 0.002
+eat_satiety             = 0.32
+
+cond_dec                = 24
+
+[kolbasa]:food_base
+$spawn                  = "food and drugs\kolbasa"
+visual                  = weapons\kolbasa\kolbasa.ogf
+inv_name                = Kolbasa
+inv_name_short          = Kolbasa
+description             = enc_equipment_food_kolbasa1
+inv_grid_x              = 22
+inv_grid_y              = 4
+cost                    = 50
+inv_weight              = 0.5
+inv_volume              = 0.4
+
+attach_angle_offset     = 0.440521, 1.378287, -0.644026
+attach_position_offset  = 0.104196, -0.010821, 0.076969
+
+boost_time              = 5.0
+boost_health_restore    = 0.002
+eat_satiety             = 0.58
+
+cond_dec                = 16
+
+[conserva]:food_base
+$spawn                  = "food and drugs\conserva"
+visual                  = food\conserv1.ogf
+inv_name                = Conserva
+inv_name_short          = Conserva
+description             = enc_equipment_food_conserva1
+inv_grid_x              = 24
+inv_grid_y              = 4
+cost                    = 100
+inv_weight              = 0.5
+inv_volume              = 0.38
+
+attach_angle_offset     = 0.000000, 0.000000, 0.000000
+attach_position_offset  = 0.087266, -0.078540, 0.052360
+
+boost_time              = 5.0
+boost_health_restore    = 0.002
+eat_satiety             = 1

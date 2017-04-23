@@ -1,0 +1,275 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : se_respawn.script
+ Description: Respawner. Схема обновления популяции всего всего всего в симуляции.
+ Copyright  : 2006 © GSC Game World
+ Author(s)  : Stohe (Диденко Руслан)
+ Edited     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--// TODO: сделать самоликвидирование событийных респавнеров, которые вызываются один раз за игру
+--// TODO: сделать опциональную привязку респавнера к универсальному гулагу (одно для другого делается потому-что), и вызывать его только тогда, когда в том гулаге есть места
+--// TODO: для экслюзивных респавнеров сделать пресет (до)спавна до capacity гулага
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local section_name  = "respawn"
+local respawners    = {}
+local idle_spawn_preset = {
+    seldom  = 48*60,    --// каждые 48 часов игрового времени
+    medium  = 24*60,    --// каждые 24 часа  игрового времени
+    often   = 10*60,    --// каждые 10 часов игрового времени
+    --//----------------
+    event   = -1,       --// это событийный спавн
+}
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+local function r_2nums(spawn_ini, section, line, def1, def2) --// Karlan->Karlan: по сути это r_svector2, надо бы сделать, а пока хотя бы функцию в нормальный вид приведу
+    if spawn_ini:line_exist(section, line) then
+        local t = parse_names(spawn_ini:r_string(section, line))
+        if #t ~= 0 then
+            if #t > 1 then
+                return t[1], t[2]
+            end
+            return t[1], def2
+        end
+    end
+    return def1, def2
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+class "se_respawn" (cse_alife_smart_zone)
+function se_respawn:__init(section) super(section)
+    self.spawned_obj = {}
+    self.time_read = false
+end
+function se_respawn:STATE_Write(packet)
+    cse_alife_smart_zone.STATE_Write(self, packet)
+    local table_size = #self.spawned_obj
+    packet:w_u8(table_size)
+    for i=1, table_size do
+        packet:w_u16(self.spawned_obj[i])
+    end
+    --// Karlan: тут пока накладка есть в том, что пишем и читаем (один байт) и для событийных, которые к таймеру вообще отношения не имеют
+    w_CTime(packet, self.respawn_time) --// проверку можно поднять выше и записывать только инициализированное время, тогда саму инициалиацию надо будет отсюда убрать туда где была, но при чтении это может дать по шее
+    if self.respawn_time == nil then
+        self.respawn_time = game.CTime() --// производим (первичную) инициализацию
+    end
+    -- log('STATE_Write call [%s], self.respawn_time = %s', self:name(), self.respawn_time)
+end
+function se_respawn:STATE_Read(packet, size)
+    cse_alife_smart_zone.STATE_Read(self, packet, size)
+    if editor() then return end
+    local table_size = packet:r_u8()
+    for i=1, table_size do
+        table.insert(self.spawned_obj, packet:r_u16())
+    end
+    if packet:r_eof() then return end --// на первом запуске тут еще ничего нет
+    self.respawn_time = r_CTime(packet)
+    self.time_read = true
+    -- log('STATE_Read call [%s], self.respawn_time = %s', self:name(), self.respawn_time)
+end
+function se_respawn:on_register()
+    cse_alife_smart_zone.on_register(self)
+    -- log('on_register call [%s], self.respawn_time = [%s]', self:name(), self.respawn_time)
+    local ini = self:spawn_ini()
+    if not ini:section_exist(section_name) then return end
+    assert(ini:line_exist(section_name, 'respawn_section'), "RESPAWN: [%s] field 'respawn_section' doesn't exist.", self:name())
+    assert(ini:r_string(section_name, 'respawn_section')~="", "RESPAWN: [%s] field 'respawn_section' doesn't incorrect.", self:name())
+    self.respawn_section = parse_spawns(ini:r_string(section_name, 'respawn_section'))
+    self.min_count = READ_IF_EXISTS(ini, 'r_float', section_name, "min_count", 0)
+    self.max_count = READ_IF_EXISTS(ini, 'r_float', section_name, "max_count", -1)
+    if self.min_count > self.max_count and self.max_count ~= -1 then
+        abort("RESPAWN: [%s] min_count > max_count", self:name())
+    end
+    self.max_spawn = READ_IF_EXISTS(ini, 'r_float', section_name, "max_spawn", 1)
+    self.idle_spawn_min, self.idle_spawn_max = r_2nums(ini, section_name, "idle_spawn")
+    if not self.idle_spawn_min then --// Karlan: новая телега позволяющая задавать интервалы в зависимости от фаз луны
+        self.idle_spawn_min = READ_IF_EXISTS(ini, 'r_string', section_name, "idle_spawn_min", nil)
+        if self.idle_spawn_min then self.idle_spawn_min = xr_logic.pick_section_from_condlist(self, self.idle_spawn_min) end
+    end
+    if not self.idle_spawn_max then
+        self.idle_spawn_max = READ_IF_EXISTS(ini, 'r_string', section_name, "idle_spawn_max", nil)
+        if self.idle_spawn_max then self.idle_spawn_max = xr_logic.pick_section_from_condlist(self, self.idle_spawn_max) end
+    end
+    assert(self.idle_spawn_min, "RESPAWN: [%s] field 'idle_spawn' doesn't exist.", self:name())
+    if self.idle_spawn_max == nil then
+        self.idle_spawn_max = self.idle_spawn_min
+    end
+    if idle_spawn_preset[self.idle_spawn_min] ~= nil then
+        self.idle_spawn_min = idle_spawn_preset[self.idle_spawn_min]
+    else
+        self.idle_spawn_min = tonumber(self.idle_spawn_min)
+        if math.is_positive(self.idle_spawn_min) then --// Karlan: данный трюк позволит по человечески задавать нешаблонные интервалы
+            self.idle_spawn_min = self.idle_spawn_min*60
+        end
+    end
+    if idle_spawn_preset[self.idle_spawn_max] ~= nil then
+        self.idle_spawn_max = idle_spawn_preset[self.idle_spawn_max]
+    else
+        self.idle_spawn_max = tonumber(self.idle_spawn_max)
+        if math.is_positive(self.idle_spawn_max) then
+            self.idle_spawn_max = self.idle_spawn_max*60
+        end
+    end
+    if self.idle_spawn_min > self.idle_spawn_max then
+        warning('!WARN: [%s] self.idle_spawn_min > self.idle_spawn_max, trying fix...', self:name())
+        self.idle_spawn_min, self.idle_spawn_max = self.idle_spawn_max, self.idle_spawn_min
+    end
+    self.str_conditions = READ_IF_EXISTS(ini, 'r_string', section_name, "conditions", "100")
+    self.conditions     = parse_condlist(self.str_conditions)
+    self.respawn_radius = READ_IF_EXISTS(ini, 'r_float', section_name, "respawn_radius", -1)
+    self.insert_smart   = READ_IF_EXISTS(ini, 'r_string', section_name, "insert_smart", nil)
+    self.parent         = READ_IF_EXISTS(ini, 'r_float', section_name, "parent", nil)
+    if not self.time_read then --// on delete [x]
+        abort('not self.time_read') --// если мне не изменяет разум, то этого никогда не должно быть
+        self.respawn_time = game.CTime()
+    end
+    respawners[self:name()] = self
+end
+function se_respawn:update() --// обновление в оффлайне
+    cse_alife_smart_zone.update(self)
+    self:execute()
+end
+function se_respawn:update_online() --// обновление в онлайне
+    if self.idle_spawn_min == -1 then return end
+    if self.respawn_radius == -1 then return end
+    if vector.yaw_deg3d(dev.cam_dir, actor:position():sub(self.position)) < 35 then return end --// даже при, относительно, большом радиусе будет криво смотрется, поэтому сначал проверим это
+    if actor:position():distance_to(self.position) < self.respawn_radius then return end
+    self:execute()
+end
+function se_respawn:execute() --// обновление респавнера, в зависимости от настроек обновляется либо только в офлайне, либо и там и там
+    -- log('check new style = [%s]:[actor %s]:<offline called [%s]>', _G.storage['{663A0135-0A8F-41D9-91BA-FCCBFD59B146}_root'], actor~=nil, offline) --// Karlan->Malandrinus: мои тесты показали, что даже никаких пауз ставить не нужно будет, оно и понятно, актор же самый первый, соотвественно без него никто не может это вызвать
+    --' Выходим, если у нас установлен событийный спавн.
+    if self.idle_spawn_min == -1 then return end --// по хорошему событийные респавнеры вообще апдейтить не надо
+    if self.respawn_time >= game.get_game_time() then return end
+    local idle_time = game.CTime()
+    idle_time:setHMS(0, math.random(self.idle_spawn_min, self.idle_spawn_max), 0)
+    self.respawn_time = game.get_game_time() + idle_time
+    self:spawn() --// производим попытку заспаунить объекты
+end
+function se_respawn:spawn()
+    log('-~> Process spawn in [%s]:[%s]: object count = %s, min,max = (%d,%d), max_spawn = %d', self:name(), self.level_name, #self.spawned_obj, self.min_count, self.max_count, self.max_spawn)
+    for k,v in pairs(self.spawned_obj) do
+        local obj = sim:object(v)
+        if not obj then
+            table.remove(self.spawned_obj, k)
+        else
+            if (IsStalker(obj) or IsMonster(obj)) and obj.alive and (obj:alive() ~= true) then
+                table.remove(self.spawned_obj, k)
+            end
+        end
+    end
+    if xr_logic.pick_section_from_condlist(self, self.conditions) == "0" then
+        return log("~~> Result count = [%s], CANT SPAWN. PROBABILITY ZERO!!!", #self.spawned_obj)
+    end
+    --// экстренный спаун минимального количества объектов
+    if #self.spawned_obj < self.min_count then --// доспавниваем до минимума 
+        while #self.spawned_obj < self.min_count do
+            if self:create(100) == false then return log('~~> Result count = [%s], option: false in spawn to min count', #self.spawned_obj) end
+        end
+        -- return --// Karlan: для теста закоментим, будем подспавнивать побольше
+    end
+    --// делаем несколько попыток заспаунить объект
+    local cond = xr_logic.pick_section_from_condlist(self, self.conditions)
+    for i=1, self.max_spawn do --// по счетчику пытаемся забить до отказа респавнер
+        if self.max_count ~= -1 and #self.spawned_obj >= self.max_count then
+            return log('~~> Result count = [%s], option: false in max count reached, self.max_count = [%s]', #self.spawned_obj, self.max_count)
+        end
+        if self:create(cond) == false then
+            return log('~~> Result count = [%s], option: false in spawn in max count, cond = [%s]', #self.spawned_obj, cond)
+        end
+    end
+    log('-~> Result count = [%s], option: complete', #self.spawned_obj)
+end
+function se_respawn:create(prob) --// создаем объект
+    assert(tostring(prob)~="nil", "RESPAWN: [%s] spawn probability doesn't set", self:name())
+    if math.random(100) > tonumber(prob) then return false end
+    local spawn_section, sum, parent_id, obj = "", 0, INVALID_ID, nil
+    --// Karlan->ALL: если #self.respawn_section == 1 и prob == 1 или 100, то надобность в циклах напрочь отпадает, секция уже давно известна :)
+    if #self.respawn_section == 1 and (self.respawn_section[1].prob == 1 or self.respawn_section[1].prob == 100) then
+        spawn_section = self.respawn_section[1].section
+    else --// а вот тут начинаем расколбас
+        for k,v in pairs(self.respawn_section) do sum = sum + v.prob end
+        sum = math.random(0, sum) --// Karlan: помоему здесь лучше получить число по интервалу от 0 до math.random(0, sum) и взять, собственно секцию, а потом снова запускать рандом
+        for k,v in pairs(self.respawn_section) do
+            sum = sum - v.prob            
+            if sum <= 0 then
+                spawn_section = v.section
+                break
+            end
+        end
+    end
+    if is_number(self.parent) then
+        parent_id = get_id(sim:story_object(self.parent))
+        assert(parent_id~=INVALID_ID, "SPAWNING [%s], cant find parent with SID [%s]", self:name(), self.parent)
+    end
+    if parent_id == INVALID_ID then
+        if self.insert_smart then --// Karlan: добавляем возможность сделать респавнер с возможностью спавна в определенный смарт (который уникальный, но не событийный)
+            --// Karlan->ALL: идея следующая, если места есть, то пихаем в гулаг, если мест нет вбрасываем его в симуляцию, если его никто не подберет (из универсалов) его удалят :)
+            local smart = sim:object(self.insert_smart)
+            if not smart or not smart.gulag_working or not smart.gulag then return false end --// видимо первый запуск игры и тусуемся еще где-то на сервере, надо посмотреть юзается ли после первой загрузки игры, а то на сервере может таймер отработать, это будет неверно, хотя это маловозможно
+            if smart.gulag.population >= smart.gulag.capacity then return false end --// работ нет, зачем пытатся кого-то тогда туда спавнить?
+            obj = sim:create(spawn_section, self.position, self.m_level_vertex_id, self.m_game_vertex_id)
+            obj:set_custom_data(add_smart_terrain(self.insert_smart, obj:spawn_string()))
+            -- add_map_spot(obj.id, 'green_location', obj:name())
+        else
+            obj = sim:create(spawn_section, self.position, self.m_level_vertex_id, self.m_game_vertex_id)
+        end
+    else
+        obj = sim:create(spawn_section, self.position, self.m_level_vertex_id, self.m_game_vertex_id, parent_id)
+        table.insert(self.spawned_obj, obj.id)
+        return true --// Karlan: с ящиком на этом можно и покончить, к тому же item_spawn не нужен получается совершенно :)
+    end
+    local check = true
+    if cfg_get_string(obj:spawn_ini(), "smart_terrains", "none") == "true" then --// ага, так, теперь имеем полное право создавать неудаляемые объекты прямо из респавнера!
+        log('-CHECK: [%s]:[%s] has <none = true> in [smart_terrains] section, spawn complete', obj:name(), obj.level_name)
+        check = false
+    end
+    if cfg_get_string(obj:spawn_ini(), "smart_terrains", "respawn_check") == "false" then
+        log('-CHECK: [%s]:[%s] has <respawn_check = false> in [smart_terrains] section, spawn complete', obj:name(), obj.level_name)
+        check = false
+    end
+    if not check then table.insert(self.spawned_obj, obj.id) return true end
+    obj:brain():update()
+    if obj:smart_terrain_id() == INVALID_ID then --// Karlan->Team: вот это вот дикая мерзость, чтобы с этим придумать, в оффлайне держать до следующей отработки тоже фигово выйдет
+        self:log('object [%s] has ivalid smart or isnt got job, so release', obj:name())
+        sim:release(obj, true)
+        return false
+    end
+    table.insert(self.spawned_obj, obj.id)
+    return true
+end
+function se_respawn:log(fmt, ...)
+    if PROSECTORS_DEBUG and _DEBUG_ and self:name() == 'esc_cat_respawn_1' then
+        log1('se_respawn:log:\t' .. string.exformat(fmt, ...))
+    end
+end
+--//-----------------------------------------------------------------
+--// Внешний доступ к классу
+--//-----------------------------------------------------------------
+function extra_spawn(name) --// для экстренных вызовов из внешних файлов (для сюжета, предполагается для людей и зверья)
+    local spawner = respawners[name]
+    if not spawner then return warning('respawner with name [%s] was not founded in respawners data', name) end
+    log('@EXTERNAL CALL START [>]') spawner:spawn() log('@EXTERNAL CALL END [<]')
+end
+function spawn(name) --// облегченный вызов спавна (предполагается для ящиков)
+    local spawner = respawners[name]
+    if not spawner then return warning('respawner with name [%s] was not founded in respawners data', name) end
+    log('-~> EXTERNAL CALL: Process spawn in [%s]:[%s]: object count = %s, min,max = (%d,%d), max_spawn = %d', spawner:name(), spawner.level_name, #spawner.spawned_obj, spawner.min_count, spawner.max_count, spawner.max_spawn)
+    for i=1, spawner.max_spawn do
+        if spawner.max_count ~= -1 and #spawner.spawned_obj >= spawner.max_count then
+            return log('~~> EXTERNAL CALL: Result count = [%s], option: false in max count reached, spawner.max_count = [%s]', #spawner.spawned_obj, spawner.max_count)
+        end        
+        if spawner:create(xr_logic.pick_section_from_condlist(spawner, spawner.conditions)) == false then
+            return log('~~> EXTERNAL CALL: Result count = [%s], option: false in spawn in max count, cond = [%s]', #spawner.spawned_obj, cond)
+        end
+    end
+    log('-~> EXTERNAL CALL: Result count = [%s], option: complete', #spawner.spawned_obj)    
+end
+--//-----------------------------------------------------------------------------------------------

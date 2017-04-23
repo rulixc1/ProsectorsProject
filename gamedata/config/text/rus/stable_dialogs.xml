@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="windows-1251" ?>
+<string_table>
+	<string id="actor_break_dialog_0">
+		<text>До встречи.</text>
+	</string>
+	<string id="actor_break_dialog_3">
+		<text>Пока.</text>
+	</string>
+	<string id="actor_break_dialog_1">
+		<text>Бывай.</text>
+	</string>
+	<string id="actor_break_dialog_2">
+		<text>Увидимся.</text>
+	</string>
+	<string id="hello_dialog_2">
+		<text>Привет!</text>
+	</string>
+	<string id="hello_dialog_3">
+		<text>Слышь, браток, помоги!</text>
+	</string>
+</string_table>

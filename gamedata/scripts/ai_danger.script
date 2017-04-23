@@ -1,0 +1,171 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_danger.script
+ Description: Интерфейс для схемы Danger
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Rulix (по материалам GSC)
+--]] ----------------------------------------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+---------------------------------------------------------------------------------------------------
+local DO = danger_object
+local flags_exploded = global_flags.flExploded+global_flags.flExploding
+local def_ignore_time = {
+[DO.grenade]			= 15000,
+[DO.entity_corpse]		= 20000,
+[DO.entity_attacked]	= 60000,
+[DO.attacked]			= 70000,
+[DO.enemy_sound]		= 18000,
+[DO.attack_sound]		= 18000,
+[DO.entity_death]		= 25000,
+[DO.bullet_ricochet]	= 30000,
+}
+local def_ignore_distance = {
+[DO.grenade]			= 14,
+[DO.entity_corpse]		= 20,
+[DO.entity_attacked]	= 100,
+[DO.attacked]			= 200,
+[DO.enemy_sound]		= 100,
+[DO.attack_sound]		= 100,
+[DO.entity_death]		= 100,
+[DO.bullet_ricochet]	= 200,
+}
+----------------------------------------------------------------------------------------------------------------------
+-- EVALUATORS
+----------------------------------------------------------------------------------------------------------------------
+-- true - есть danger, false - нет danger
+class "evaluator_danger" (property_evaluator)
+function evaluator_danger:__init(stor,name) super (nil, name)
+	self.stor = stor
+end
+function evaluator_danger:evaluate()
+	self.stor.danger_flag = false
+	local npc = self.object
+
+	-- проверка на денжер.
+	local best_danger = npc:best_danger()
+	if best_danger == nil then
+		return false
+	end
+
+	local dtype = best_danger:type()
+	-- Гранаты не игнорируем
+	if dtype == DO.grenade then
+		local gren = best_danger:dependent_object()
+		if gren and not gren:get_explosive().explosion_flags:test(flags_exploded) then
+--			log("#DANGER[%s] GRENADE! [%s]", npc:name(), gren:name())
+			self.stor.danger_flag = true
+			return true
+		end
+	end
+
+	local object = best_danger:object()
+	-- Если нет объекта, то источник - не CEntityAlive
+	if not object then
+		log("#DANGER [%s] no object", npc:name())
+		return false
+	end
+
+	-- if not object:alive() and dtype ~= entity_corpse then
+		-- log("~DANGER[%s] object[%s] is not alive",npc:name(),object:name())
+		-- return false
+	-- end
+
+	-- if object:is_monster() and object:position():distance_to(npc:position()) > npc:max_ignore_monster_distance() + 15 then
+		-- log("#DANGER[%s] object[%s] faraway monster",npc:name(),object:name())
+		-- return false
+	-- end
+
+    -- отсеиваем по настройке combat_ignore/danger
+	local active_scheme = self.stor.active_scheme
+	if active_scheme and ai_combat_ignore.check_ignore(npc,object) then
+--		log("#DANGER [%s]->[%s] [FALSE] combat_ignore", npc:name(), object:name())
+		return false
+	end
+
+	-- Отсеиваем по зоне
+	if sr_danger.check_danger_position(best_danger:position()) then
+		log("#DANGER [%s]->[%s] [FALSE] nodanger_zone", npc:name(), object:name())
+		return false
+	end
+
+	-- Денжер для снайпера
+	if active_scheme == "camper" and self.stor[active_scheme].sniper then
+		return false
+	end
+
+	if self.stor.danger_hush_time then
+		if self.stor.danger_hush_time > time_global() then
+			return false
+		end
+		self.stor.danger_hush_time = nil
+	end
+
+	self.stor.danger_flag = true
+	return true
+end
+
+class "evaluator_danger_grenade" (property_evaluator)
+function evaluator_danger_grenade:__init(stor,name) super (nil,name)
+	self.stor = stor
+end
+function evaluator_danger_grenade:evaluate()
+	if self.stor.danger_flag then
+		local best_danger = self.object:best_danger()
+		if best_danger and best_danger:dependent_object() and best_danger:type() == DO.grenade then	-- and time_global()-best_danger:time() < 7000
+			self.storage:set_property(stalker_ids.property_danger_grenade,true)
+			return true
+		end
+	end
+	self.storage:set_property(stalker_ids.property_danger_grenade,false)
+	return false
+end
+----------------------------------------------------------------------------------------------------------------------
+-- BINDER
+----------------------------------------------------------------------------------------------------------------------
+function add_to_binder(npc)
+	local storage = db.storage[npc:id()]
+	local manager = npc:motivation_action_manager()
+	manager:remove_evaluator(stalker_ids.property_danger)
+	manager:add_evaluator(stalker_ids.property_danger, this.evaluator_danger(storage,"danger"))
+	-- evaluator_danger_grenade
+	manager:add_evaluator(stalker_ids.property_danger_grenade,evaluator_danger_grenade(storage,"danger_grenade"))
+	manager:set_property(stalker_ids.property_danger_grenade,false)
+	local action = manager:action(stalker_ids.action_danger_planner)
+	action:add_effect(world_property(stalker_ids.property_danger_grenade,false))
+end
+function set_scheme(npc)
+    xr_logic.assign_storage_and_bind(npc,nil,'danger')
+end
+
+function reset_scheme(npc, scheme, st, section)
+	local danger_section = cfg_get_string(st.ini, scheme ~= nil and scheme ~= "nil" and section or st.section_logic, "danger")
+--	logc("[%s:%s]DANGER SECTION [%s] default %s",npc:character_name(),npc:name(),danger_section,st.danger.default)
+	local ignore_time_grenade,ignore_time_corpse,ignore_time_hit,ignore_time_sound,ignore_time_ricochet
+	local ignore_distance,ignore_distance_grenade,ignore_distance_corpse,ignore_distance_hit,ignore_distance_sound
+	if danger_section then
+		ignore_time_grenade     =  cfg_get_number(st.ini, danger_section, "danger_inertion_time_grenade")
+		ignore_time_corpse      =  cfg_get_number(st.ini, danger_section, "danger_inertion_time_corpse")
+		ignore_time_hit         =  cfg_get_number(st.ini, danger_section, "danger_inertion_time_hit")
+		ignore_time_sound       =  cfg_get_number(st.ini, danger_section, "danger_inertion_time_sound")
+		ignore_time_ricochet    =  cfg_get_number(st.ini, danger_section, "danger_inertion_time_ricochet")
+		ignore_distance            =  cfg_get_number(st.ini, danger_section, "ignore_distance")
+		ignore_distance_grenade    =  cfg_get_number(st.ini, danger_section, "ignore_distance_grenade", ignore_distance and math.min(ignore_distance,def_ignore_distance[DO.grenade]) or nil)
+		ignore_distance_corpse     =  cfg_get_number(st.ini, danger_section, "ignore_distance_corpse", ignore_distance and math.min(ignore_distance,def_ignore_distance[DO.entity_corpse]) or nil)
+		ignore_distance_hit        =  cfg_get_number(st.ini, danger_section, "ignore_distance_hit", ignore_distance)
+		ignore_distance_sound      =  cfg_get_number(st.ini, danger_section, "ignore_distance_sound", ignore_distance)
+	end
+	if danger_section or not st.danger.default then
+		npc:set_danger_ignore_values(DO.bullet_ricochet,	ignore_time_ricochet or def_ignore_time[DO.bullet_ricochet],	ignore_distance or def_ignore_distance[DO.bullet_ricochet]);
+		npc:set_danger_ignore_values(DO.attack_sound,		ignore_time_sound or def_ignore_time[DO.attack_sound],			ignore_distance_sound or def_ignore_distance[DO.attack_sound]);
+		npc:set_danger_ignore_values(DO.entity_attacked,	ignore_time_hit or def_ignore_time[DO.entity_attacked],			ignore_distance_hit or def_ignore_distance[DO.entity_attacked]);
+		npc:set_danger_ignore_values(DO.entity_death,		ignore_time_sound or def_ignore_time[DO.entity_death],			ignore_distance_sound or def_ignore_distance[DO.entity_death]);
+		npc:set_danger_ignore_values(DO.entity_corpse,		ignore_time_corpse or def_ignore_time[DO.entity_corpse],		ignore_distance_corpse or def_ignore_distance[DO.entity_corpse]);
+		npc:set_danger_ignore_values(DO.attacked,			ignore_time_hit or def_ignore_time[DO.attacked],				ignore_distance_hit or def_ignore_distance[DO.attacked]);
+		npc:set_danger_ignore_values(DO.grenade,			ignore_time_grenade or def_ignore_time[DO.grenade],				ignore_distance_grenade or def_ignore_distance[DO.grenade]);
+		npc:set_danger_ignore_values(DO.enemy_sound,		ignore_time_sound or def_ignore_time[DO.enemy_sound],			ignore_distance_sound or def_ignore_distance[DO.enemy_sound]);
+	end
+	st.danger.default = not danger_section
+end
+
+function hush(npc,time)
+	db.storage[npc:id()].danger_hush_time = time_global()+time
+end

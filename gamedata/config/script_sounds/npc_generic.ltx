@@ -1,0 +1,284 @@
+;***************************************************************
+; ТЕМЫ ОБЩЕЙ ОЗВУЧКИ ПЕРСОНАЖЕЙ
+;***************************************************************
+
+[_generic]
+npc_prefix = true
+idle = 1,1,100
+priority = 1
+
+[_combat]
+npc_prefix = true
+idle = 1,1,100
+priority = 3
+is_combat_sound = true
+
+[_combat_int]
+idle = 1,1,100
+priority = 3
+
+;===============================================================
+
+[list_generic]
+state
+sleep
+
+help_heavy
+help_heavy_zombie
+help_thanx
+
+wait
+threat_weap
+threat_back
+
+talk_hello
+
+use_no_fight
+use_no_sleep
+use_no_weapon
+use_no_default
+use_abuse
+
+;trade_buy
+;trade_sell
+
+fight_attack
+zombied_fight_attack
+fight_search
+fight_enemy
+
+; AI Additions
+gl_fire				= ai_gl
+knife_attack		= ai_knife
+knife_attack_mutant	= ai_knife
+monster_defend		= ai_knife
+enemy_death			= ai_knife
+kill_wounded		= ai_kill_wounded
+
+;enemy_hit
+npc_hit				= ai_facer
+friendly_fire		= ai_facer
+
+wounded_medkit		= ai_help_wounded
+corpse_loot_begin	= ai_corpse_detection
+corpse_loot_good	= ai_corpse_detection
+corpse_loot_bad		= ai_corpse_detection
+
+post_combat_wait	= ai_post_combat_idle
+post_combat_relax	= ai_post_combat_idle
+
+grenade_ready		= ai_grenade
+grenade_alarm		= ai_grenade
+psyh_threat			= ai_grenade
+friendly_grenade	= ai_grenade
+
+;===============================================================
+
+; состояния тела
+[state]:_generic
+path					= states\idle\idle_
+idle					= 20,45,30
+delay_sound				= 1000,4000
+group					= state_group
+
+[sleep]:_generic
+path					= states\sleep\sleep_
+idle					= 10,15,75
+
+;раненый
+[help_heavy]:_generic
+path					= help\wounded_heavy\help_
+idle					= 6,12,80
+delay_sound				= 1000
+
+[help_heavy_zombie]:_generic
+path					= states\rising\rising_
+idle					= 5,8,60
+delay_sound				= 1500
+avail_communities		= zombied
+
+[help_thanx]:_generic
+path					= help\wounded_thanx\thanx_
+idle					= 10,10,90
+delay_sound				= 300,3000
+priority				= 2
+
+;ожидание
+
+[wait]:_generic
+path					= no_sound
+idle					= 7,10,100
+shuffle					= loop
+priority				= 0
+
+;угрозы
+
+[threat_weap]:_generic
+path					= threat\drop_weapon\dropweapon_
+idle					= 4,5,100
+;shuffle					= loop
+delay_sound				= 400
+group					= threat_weap_group
+
+[threat_back]:_generic
+path					= threat\back_off\backoff_
+idle					= 3,5,100
+shuffle					= loop
+
+;реакции
+
+[reac_box]:_generic
+path					= reactions\box\box_
+idle					= 1,2,100
+
+;болтовня
+
+[talk_hello]:_generic
+path					= states\meet\meet_hello_
+idle					= 60,90,90
+delay_sound				= 1000
+group					= hello_group
+
+;реакции на юзание
+
+[use_no_fight]:_generic
+path					= talk\use\no_fight_
+idle					= 3,5,100
+
+[use_no_sleep]:_generic
+path					= talk\use\no_sleep_
+idle					= 3,5,100
+
+[use_no_weapon]:_generic
+path					= talk\use\no_weapon_
+idle					= 3,5,100
+
+[use_no_default]:_generic
+path					= talk\use\no_default_
+idle					= 3,5,100
+
+[use_abuse]:_generic
+path					= talk\use\abuse_
+idle					= 3,5,100
+
+;торговля
+[trade_buy]:_generic
+path					= states\trade\buy_
+idle					= 10,10,100
+
+[trade_sell]:_generic
+path					= states\trade\sell_
+idle					= 10,10,100
+
+;бой
+[fight_attack]:_combat
+path					= fight\attack\attack_
+idle					= 4,5,40
+
+[zombied_fight_attack]:_combat
+path					= fight\attack\attack_
+idle					= 5,11,80
+avail_communities		= zombied
+
+[fight_search]:_combat
+path					= fight\searching_enemy\search_
+idle					= 6,15,100
+
+[fight_enemy]:_combat
+path					= fight\enemy\enemy_
+idle					= 10,12,100
+
+
+; =====================AI Additions====================
+[gl_fire]:_combat
+path		= fight\fire\fire_
+idle		= 20,40,80
+
+[knife_attack]:_combat
+path		= fight\threat\threat_close_
+idle		= 6,15,70
+delay_sound	= 300,1100
+
+[knife_attack_mutant]:_combat
+path		= fight\threat\threat_distant_
+idle		= 5,20,70
+delay_sound	= 1000
+
+[monster_defend]:_combat
+path		= states\panic_monster\panic_monster_
+idle		= 6,16,70
+
+[npc_hit]:_combat_int
+sound		= sound_injuring
+idle		= 3,6,60
+
+[friendly_fire]:_generic
+sound		= sound_injuring_by_friend
+idle		= 2,5,100
+
+[enemy_hit]:_combat_int
+sound		= sound_enemy_critically_wounded
+idle		= 5,10,100
+
+[enemy_death]:_combat_int
+sound		= sound_enemy_killed_or_wounded
+idle		= 5,10,70
+delay_sound	= 400
+
+[kill_wounded]:_generic
+sound		= sound_kill_wounded
+idle		= 4,6,100
+
+; corpse detection & help_wounded
+
+[wounded_medkit]:_generic
+path		= help\wounded\medkit_
+idle		= 20,40,80
+
+[corpse_loot_begin]:_generic
+path		= states\loot\loot_begin_
+idle		= 10,30,50
+
+[corpse_loot_good]:_generic
+path		= states\loot\loot_good_
+idle		= 10,15,90
+
+[corpse_loot_bad]:_generic
+path		= states\loot\loot_bad_
+idle		= 10,20,80
+delay_sound	= 100,900
+
+; post combat idle
+[post_combat_wait]:_generic
+path		= fight\post_combat_wait\wait_
+idle		= 5,15,40
+delay_sound	= 500,1000
+group		= post_combat_group
+
+[post_combat_relax]:_generic
+path		= fight\post_combat_wait\relax_
+idle		= 15,30,90
+group		= post_combat_group
+
+; grenadier
+[grenade_ready]:_combat
+path		= fight\grenade\grenade_ready_
+idle		= 0,0,100
+delay_sound	= 100,1200
+
+[grenade_alarm]:_combat_int
+sound		= sound_grenade_alarm
+idle		= 9,12,50
+group		= grenade_alarm_group
+delay_sound	= 1,800
+
+[friendly_grenade]:_combat_int
+sound		= sound_friendly_grenade_alarm
+idle		= 10,30,100
+group		= grenade_alarm_group
+
+[psyh_threat]:_combat_int
+sound		= sound_backup
+;path		= fight\backup\backup_
+;path		= fight\threat\threat_close_
+idle		= 1,2,100

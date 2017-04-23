@@ -1,0 +1,155 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_items.script
+ Description: Some functions for inventory items
+ Copyright  : 2017 © Prosectors Project
+ Author     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = true --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+--// CUSTOMIZABLE
+local art_param_deviation = 20 --// Karlan: процент отклонения параметра артефакта
+local art_work_condition_decrement = 36
+--//--------------------
+local loaded = false
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-------------------------
+function presets()
+    if not loaded then abort('not init!') end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// биндер предметов (еда, части монстров, артефакты)
+--//-----------------------------------------------------------------
+function get_suffix(str, obj)
+--// Karlan->Nazgool: научить понимать русские буквы, а то паттерны нормальные невозможно делать
+    str = string.split(str, '%s')
+    log('str = %s', str[1])
+    local suff = str[1]:sub(-1)
+    log('suff = %s', suff)
+    if suff == 'я' or suff == 'а' then
+        return 'ась'
+    elseif suff == 'о' then
+        return 'ось'
+    elseif suff == 'и' then
+        return 'ись'
+    elseif suff == 'т' or suff == 'з' or (obj and obj:is_artefact()) then
+        return 'ся'
+    end
+    return "NULL"
+end
+function set_art_param(name, value, obj)
+    -- log('~> START art name = [%s], param = [%s], value = [%s]', obj:name(), name, value)
+    --// Karlan->ALL: поскольку здесь нужен корректный рандом, то нужно умножать реальный коэффициенты на как можно большие числа, в противном случае результат всегда будет одинаков
+    local result = read_pstor(name, nil, obj)
+    if not result then
+        -- log('! not result')
+        local percent = 0
+        if value~=0 and value~=1 then
+            percent = 10000*(name:find('immunity') and 1-value or value)*(art_param_deviation/100)
+            percent = math.random(-percent, percent)
+            percent = percent/10000
+        end
+        result = value + percent
+        if percent ~= 0 then write_pstor(name, result, obj) end
+    end
+    -- log('~> FINISH art name = [%s], param = [%s], result = [%s]', obj:name(), name, result)
+    return result
+end
+function bind_eat(obj) obj:bind_object(item_binder(obj)) end
+class "item_binder" (object_binder)
+function item_binder:__init(obj) super(obj) 
+    self.cond_trigger       = 0
+    self.obj_id             = obj:id() 
+end
+function item_binder:reinit()
+    db.storage[self.obj_id] = {["pstor"] = {}}
+end
+function item_binder:net_spawn(data)
+    if not object_binder.net_spawn(self, data) then warning("net_spawn:obj=NIL") return false end
+    LOAD_DATA(self.object)
+    if self.object:is_artefact() then
+        -- log('art net spawn %s', self.object)
+        local eart = self.object:get_artefact()
+        -- log('get eart')
+        eart.health_restore_speed = set_art_param('health_restore_speed', eart.health_restore_speed, self.object)
+        eart.radiation_restore_speed = set_art_param('radiation_restore_speed', eart.radiation_restore_speed, self.object)
+        eart.satiety_restore_speed = set_art_param('satiety_restore_speed', eart.satiety_restore_speed, self.object)
+        eart.power_restore_speed = set_art_param('power_restore_speed', eart.power_restore_speed, self.object)
+        eart.bleeding_restore_speed = set_art_param('bleeding_restore_speed', eart.bleeding_restore_speed, self.object)
+        eart.psy_health_restore_speed = set_art_param('psy_health_restore_speed', eart.psy_health_restore_speed, self.object)
+        eart.additional_weight2 = set_art_param('additional_weight2', eart.additional_weight2, self.object)
+        -- log('complete restore')
+        --// imm
+        eart.immunities.burn_immunity = set_art_param('burn_immunity', eart.immunities.burn_immunity, self.object)
+        eart.immunities.strike_immunity = set_art_param('strike_immunity', eart.immunities.strike_immunity, self.object)
+        eart.immunities.shock_immunity = set_art_param('shock_immunity', eart.immunities.shock_immunity, self.object)
+        eart.immunities.wound_immunity = set_art_param('wound_immunity', eart.immunities.wound_immunity, self.object)
+        eart.immunities.radiation_immunity = set_art_param('radiation_immunity', eart.immunities.radiation_immunity, self.object)
+        eart.immunities.telepatic_immunity = set_art_param('telepatic_immunity', eart.immunities.telepatic_immunity, self.object)
+        eart.immunities.chemical_burn_immunity = set_art_param('chemical_burn_immunity', eart.immunities.chemical_burn_immunity, self.object)
+        eart.immunities.explosion_immunity = set_art_param('explosion_immunity', eart.immunities.explosion_immunity, self.object)
+        eart.immunities.explosion_immunity = set_art_param('explosion_immunity', eart.immunities.explosion_immunity, self.object)
+        eart.immunities.fire_wound_immunity = set_art_param('fire_wound_immunity', eart.immunities.fire_wound_immunity, self.object)
+        -- log('complete immunity')
+    end
+    local condition = read_pstor('condition', nil, self.object)
+    if is_number(condition) then
+        self.object:set_condition(condition)
+    end
+    return true
+end
+function item_binder:net_destroy()
+    if self.object:condition() ~= 1 then
+        write_pstor('condition', self.object:condition(), self.object)
+    end
+    SAVE_DATA(self.object)
+    CLEAR_OBJECT(self.object)
+    db.storage[self.obj_id] = nil
+end
+function item_binder:update() --// todo: optimize
+    local time = time_global()
+    if self.cond_trigger < time then
+        self.cond_trigger = time+1000
+        -- log('update worked, self.object name = %s', self.object:name())
+        local condition_decrement = self.object:condition_dec()
+        if condition_decrement > 0 then
+            -- log('condition_dec worked, self.object name = %s', self.object:name())
+            local cond = (1/(3600*condition_decrement))*level.get_time_factor() --// так можно указывать параметр в игровых часах
+            if self.object:is_eatable_item() and (self.object:parent() and is_trader_mode(self.object:parent())) then
+                return --// у торговцев еду и медикаменты не портим
+            end
+            if self.object:is_artefact() then
+                -- log('parent id of [%s] is <%s>', self.object:name(), parent:id())
+                if not self.object:parent() then
+                    -- log('not parent for [%s]', self.object:name())
+                    return
+                end
+                if actor:is_on_belt(self.object) then --// для "работающих" артов увеличиваем хит
+                    local d = condition_decrement/art_work_condition_decrement
+                    cond = cond*math.clamp(d, 1.5, d)
+                end
+            end 
+            self.object:set_condition(self.object:condition()-cond)
+            if get_id(self.object:parent()) == actor_id and self.object:condition() < 0.05 then
+                sim:release(sim:object(self.obj_id))
+                manager_news.send_message(game.translate_string(self.object:get_name()) .. ' испортил'.. get_suffix(game.translate_string(self.object:get_name()), self.object) ..'.')
+            end
+        end
+    end
+end
+--//-----------------------------------------------------------------------------------------------

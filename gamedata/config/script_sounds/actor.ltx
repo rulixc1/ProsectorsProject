@@ -1,0 +1,481 @@
+;***************************************************************
+; ЗВУКОВАЯ КОЛЛЕКЦИЯ ИГРОКА
+;***************************************************************
+
+[example]	 				; описание параметров
+; Основные =========================================================================
+path = fight\fire\fire_		; путь к набору фраз (или к единичному звуку)
+;
+;-----------------------------------------------------------------------------------
+shuffle = seq			; способ выбора звука из набора: rnd - случайно, seq - последовательно, loop - последовательно с повторением ; по умолчанию rnd
+; если seq, то после воспроизведения всех звуков, тема больше играться не будет
+;-----------------------------------------------------------------------------------
+idle = 20,40,100		; минимальная пауза между фразами, максимальная пауза, вероятность воспроизведения
+;
+;====================================================================================
+delay_sound = 100,500	; задержка проигрывания звука в миллисекундах ; минимальная, максимальная ; по умолчанию 0
+; не рекомендуется ставить слишком большую задержку
+;-----------------------------------------------------------------------------------
+save = true				; сохранять ли индекс последнего проигранного звука при записи игры, по умолчанию false
+; не имеет смысла для shuffle = rnd
+;-----------------------------------------------------------------------------------
+group = some_group		; группа, в которой окажется эта тема
+; для организации озвучки групп НПС, или отыгрывание набора тем. см. groups.ltx
+;-----------------------------------------------------------------------------------
+play_type = looped_3d	; тип проигрывания, по умолчанию 2д разовый
+; строка-флаг : looped, 3d, 3d_looped. Для проигрывания 3д необходимо передавать позицию
+;-----------------------------------------------------------------------------------
+play_on_info = mil_scull_message1	; infoportion list
+; Тема будет запущена автоматически при получении актором инфо
+;-----------------------------------------------------------------------------------
+condition = {+mil_dolg_final_task} true	; optional condlist for play_on_info
+;
+;-----------------------------------------------------------------------------------
+callback_func = m_module.function_name(arg1,arg2)	; optional callback function for play_on_info
+;
+;-----------------------------------------------------------------------------------
+
+
+[list]
+;test3
+;test4
+heli_see_enemy
+heli_hit
+heli_damage
+heli_death
+
+;test_info1
+;test_info2
+;test_info3
+
+aes_space_restrictor_sound_0053
+aes_space_restrictor_sound_0052
+aes_space_restrictor_sound_0051
+aes_space_restrictor_sound_0050
+; Karlan: дубликат?
+aes_death_sound_restrictor
+
+aes_space_restrictor_sound_0000
+aes_space_restrictor_sound_0001
+aes_space_restrictor_sound_0002
+aes_space_restrictor_sound_0003
+aes_space_restrictor_sound_0004
+aes_space_restrictor_sound_0005
+aes_space_restrictor_sound_0006
+aes_space_restrictor_sound_0007
+aes_space_restrictor_sound_0008
+aes_space_restrictor_sound_0009
+aes_space_restrictor_sound_0010
+aes_space_restrictor_sound_0011
+aes_space_restrictor_sound_0012
+aes_space_restrictor_sound_0013
+aes_space_restrictor_sound_0014
+aes_space_restrictor_sound_0015
+aes_space_restrictor_sound_0016
+aes_space_restrictor_sound_0017
+aes_space_restrictor_sound_0018
+aes_space_restrictor_sound_0019
+aes_space_restrictor_sound_0020
+aes_space_restrictor_sound_0021
+aes_space_restrictor_sound_0022
+aes_space_restrictor_sound_0023
+aes_space_restrictor_sound_0024
+aes_space_restrictor_sound_0025
+aes_space_restrictor_sound_0026
+aes_space_restrictor_sound_0027
+aes_space_restrictor_sound_0028
+aes_space_restrictor_sound_0029
+aes_space_restrictor_sound_0030
+aes_space_restrictor_sound_0031
+aes_space_restrictor_sound_0032
+aes_space_restrictor_sound_0033
+aes_space_restrictor_sound_0034
+aes_space_restrictor_sound_0035
+aes_space_restrictor_sound_0036
+aes_space_restrictor_sound_0037
+aes_space_restrictor_sound_0038
+aes_space_restrictor_sound_0039
+aes_space_restrictor_sound_0040
+aes_space_restrictor_sound_0041
+aes_space_restrictor_sound_0042
+aes_space_restrictor_sound_0043
+aes_space_restrictor_sound_0044
+aes_space_restrictor_sound_0045
+aes_space_restrictor_sound_0046
+aes_space_restrictor_sound_0047
+aes_space_restrictor_sound_0048
+aes_space_restrictor_sound_0049
+
+mil_sound_dolg_res_0000
+mil_sound_dolg_res_0001
+mil_sound_dolg_res_0002
+mil_sound_dolg_res_0003
+mil_sound_dolg_res_0004
+mil_sound_dolg_res_0005
+mil_sound_dolg_res_0006
+mil_sound_dolg_res_0007
+mil_sound_dolg_res_0008
+mil_sound_dolg_res_0009
+mil_sound_dolg_res_0010
+mil_sound_dolg_res_0011
+mil_sound_dolg_res_0012
+mil_sound_dolg_res_0013
+mil_sound_dolg_res_0014
+mil_sound_dolg_res_0015
+
+mil_before_blockpost_restriktor
+
+[mil_before_blockpost_restriktor]
+path = characters_voice\scenario\military\pda\mil_pda_7
+play_on_info = mil_blockpost_free_task
+
+[mil_sound_dolg_res_0000]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_1
+play_on_info = mil_dolg_sound_1
+
+[mil_sound_dolg_res_0001]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_2
+play_on_info = mil_dolg_sound_2
+
+[mil_sound_dolg_res_0002]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_3
+play_on_info = mil_dolg_sound_3
+
+[mil_sound_dolg_res_0003]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_4
+play_on_info = mil_dolg_sound_4
+
+[mil_sound_dolg_res_0004]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_5
+play_on_info = mil_dolg_sound_5
+
+[mil_sound_dolg_res_0005]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_6
+play_on_info = mil_dolg_sound_6
+
+[mil_sound_dolg_res_0006]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_7
+play_on_info = mil_dolg_sound_7
+
+[mil_sound_dolg_res_0007]
+path = characters_voice\scenario\military\dolg_attack\base\mil_base_attack_8
+play_on_info = mil_dolg_sound_8
+
+[mil_sound_dolg_res_0008]
+path = characters_voice\scenario\military\dolg_attack\base\mil_dolg_down_3
+play_on_info = mil_dolg_soldier_cherep_dead
+
+[mil_sound_dolg_res_0009]
+path = characters_voice\scenario\military\dolg_attack\base\mil_dolg_down_4
+play_on_info = mil_dolg_soldier_1_dead
+
+[mil_sound_dolg_res_0010]
+path = characters_voice\scenario\military\dolg_attack\base\mil_dolg_down_1
+play_on_info = mil_dolg_soldier_2_dead
+
+[mil_sound_dolg_res_0011]
+path = characters_voice\scenario\military\dolg_attack\base\mil_dolg_down_2
+play_on_info = mil_dolg_soldier_3_dead
+
+[mil_sound_dolg_res_0012]
+path = characters_voice\scenario\military\dolg_attack\base\mil_dolg_down_5
+play_on_info = mil_dolg_soldier_4_dead
+
+[mil_sound_dolg_res_0013]
+path = characters_voice\scenario\military\dolg_attack\base\mil_enemy_down_1
+play_on_info = mil_dolg_sound_9
+
+[mil_sound_dolg_res_0014]
+path = characters_voice\scenario\military\dolg_attack\base\mil_enemy_down_2
+play_on_info = mil_dolg_sound_10
+
+[mil_sound_dolg_res_0015]
+path = characters_voice\scenario\military\dolg_attack\base\mil_enemy_down_3
+play_on_info = mil_dolg_sound_11
+;**********************************************************************************
+[aes_space_restrictor_sound_0000]
+path = characters_voice\scenario\aes\aes_chopers_begin_1
+play_on_info = aes_first_sound
+
+[aes_space_restrictor_sound_0001]
+path = characters_voice\scenario\aes\aes_chopers_begin_2
+play_on_info = aes_desant_go
+
+[aes_space_restrictor_sound_0002]
+path = characters_voice\scenario\aes\aes_choper_anomaly
+play_on_info = aes_choper_anomaly
+
+[aes_space_restrictor_sound_0003]
+path = characters_voice\scenario\aes\aes_2chopers_attack
+play_on_info = aes_2chopers_attack
+
+[aes_space_restrictor_sound_0004]
+path = characters_voice\scenario\aes\aes_first_desant_wave
+play_on_info = aes_first_wave_sound
+
+[aes_space_restrictor_sound_0005]
+path = characters_voice\scenario\aes\aes_choper_hunt_1
+play_on_info = aes_choper_hunt_1
+
+[aes_space_restrictor_sound_0006]
+path = characters_voice\scenario\aes\aes_third_desant_wave
+play_on_info = aes_desant_wave2
+
+[aes_space_restrictor_sound_0007]
+path = characters_voice\scenario\aes\aes_second_desant_wave
+play_on_info = aes_desant_wave1
+
+[aes_space_restrictor_sound_0008]
+path = characters_voice\scenario\aes\aes_desant_proceed_part_1
+play_on_info = aes_desant_proceed1
+
+[aes_space_restrictor_sound_0009]
+path = characters_voice\scenario\aes\aes_desant_proceed_part_2
+play_on_info = aes_desant_proceed2
+
+[aes_space_restrictor_sound_0010]
+path = characters_voice\scenario\aes\aes_desant_proceed_part_3
+play_on_info = aes_desant_proceed3
+
+[aes_space_restrictor_sound_0011]
+path = characters_voice\scenario\aes\aes_desant_proceed_part_4
+play_on_info = aes_desant_proceed4
+
+[aes_space_restrictor_sound_0012]
+path = characters_voice\scenario\aes\aes_chopers_begin_3
+play_on_info = aes_gonduras_sound
+
+[aes_space_restrictor_sound_0013]
+path = characters_voice\scenario\aes\aes_choper_hunt_2
+play_on_info = aes_choper_hunt_2
+
+[aes_space_restrictor_sound_0014]
+path = characters_voice\scenario\aes\aes_desant_proceed2
+play_on_info = aes_desant_proceed_part2
+
+[aes_space_restrictor_sound_0015]
+path = characters_voice\scenario\aes\aes_desant_proceed3
+play_on_info = aes_desant_proceed_part3
+
+[aes_space_restrictor_sound_0016]
+path = characters_voice\scenario\aes\aes_forth_desant_wave
+play_on_info = aes_desant_wave4
+
+[aes_space_restrictor_sound_0017]
+path = characters_voice\scenario\aes\aes_desant_gate
+play_on_info = aes_desant_gate
+
+[aes_space_restrictor_sound_0018]
+path = characters_voice\scenario\aes\aes_desant_gate2
+play_on_info = aes_desant_gate2
+
+[aes_space_restrictor_sound_0019]
+path = characters_voice\scenario\aes\aes_monsters
+play_on_info = aes_monster_sound
+
+[aes_space_restrictor_sound_0020]
+path = characters_voice\scenario\aes\aes_desant_more_1
+play_on_info = aes_desant_wave5
+
+[aes_space_restrictor_sound_0021]
+path = characters_voice\scenario\aes\aes_road_battle
+play_on_info = aes_actor_road
+
+[aes_space_restrictor_sound_0022]
+path = characters_voice\scenario\aes\aes_monsters
+play_on_info = aes_monster_ambush
+
+[aes_space_restrictor_sound_0023]
+path = characters_voice\scenario\aes\aes2\aes_seven_desant_wave
+play_on_info = aes_desant_wave6
+
+[aes_space_restrictor_sound_0024]
+path = characters_voice\scenario\aes\aes_blockpost_battle
+play_on_info = aes_blockpost_sound
+
+[aes_space_restrictor_sound_0025]
+path = characters_voice\scenario\aes\aes2\aes_actor_hunt
+play_on_info = aes_actor_hunt
+
+[aes_space_restrictor_sound_0026]
+path = characters_voice\scenario\aes\aes2\aes_unknown_weapon
+play_on_info = aes_uknown_sound
+
+[aes_space_restrictor_sound_0027]
+path = characters_voice\scenario\aes\aes2\aes_rpg_1
+play_on_info = aes_rpg_sound1
+
+[aes_space_restrictor_sound_0028]
+path = characters_voice\scenario\aes\aes2\aes_bridge_ambush_1
+play_on_info = aes_grif_sound
+
+[aes_space_restrictor_sound_0029]
+path = characters_voice\scenario\aes\aes2\aes_bridge_ambush_2
+play_on_info = aes_bridge_ambush_sound
+
+[aes_space_restrictor_sound_0030]
+path = characters_voice\scenario\aes\aes2\aes_rpg_2
+play_on_info = aes_rpg_sound2
+
+[aes_space_restrictor_sound_0031]
+path = characters_voice\scenario\aes\aes_choper_patrol
+play_on_info = aes_choper_patrol_sound
+
+[aes_space_restrictor_sound_0032]
+path = characters_voice\scenario\aes\aes_choper_crush
+play_on_info = aes_choper_crush_sound
+
+[aes_space_restrictor_sound_0033]
+path = characters_voice\scenario\aes\aes2\aes_sniper_desant
+play_on_info = aes_sniper_desant_sound
+
+[aes_space_restrictor_sound_0034]
+path = characters_voice\scenario\aes\aes2\aes_six_desant_wave
+play_on_info = aes_lun_desant_sound
+
+[aes_space_restrictor_sound_0035]
+path = characters_voice\scenario\aes\aes2\aes_sniper_talk
+play_on_info = aes_sniper_talk_1
+
+[aes_space_restrictor_sound_0036]
+path = characters_voice\scenario\aes\aes2\aes_road_battle_2
+play_on_info = aes_actor_ambush
+
+[aes_space_restrictor_sound_0037]
+path = characters_voice\scenario\aes\aes2\aes_road_battle_3
+play_on_info = aes_actor_road2
+
+[aes_space_restrictor_sound_0038]
+path = characters_voice\scenario\aes\aes2\aes_rpg_3
+play_on_info = aes_rpg_sound3
+
+[aes_space_restrictor_sound_0039]
+path = characters_voice\scenario\aes\aes2\aes_road_battle_4
+play_on_info = aes_actor_btr_ambush
+
+[aes_space_restrictor_sound_0040]
+path = characters_voice\scenario\aes\aes2\aes_road_battle_5
+play_on_info = aes_actor_ambush2
+
+[aes_space_restrictor_sound_0041]
+path = characters_voice\scenario\aes\aes2\aes_road_battle_6
+play_on_info = aes_actor_btr_move
+
+[aes_space_restrictor_sound_0042]
+path = characters_voice\scenario\aes\aes2\aes_road_battle_7
+play_on_info = aes_road_sound1
+
+[aes_space_restrictor_sound_0043]
+path = characters_voice\scenario\aes\aes2\aes_road_battle_8
+play_on_info = aes_road_sound2
+
+[aes_space_restrictor_sound_0044]
+path = characters_voice\scenario\aes\aes2\aes_commander_out
+play_on_info = aes_commander_out_sound
+
+[aes_space_restrictor_sound_0045]
+path = characters_voice\scenario\aes\aes2\aes_choper_down_1
+play_on_info = aes_choper_down_1
+
+[aes_space_restrictor_sound_0046]
+path = characters_voice\scenario\aes\aes2\aes_choper_down_2
+play_on_info = aes_choper_down_2
+
+[aes_space_restrictor_sound_0047]
+path = characters_voice\scenario\aes\aes2\aes_choper_down_3
+play_on_info = aes_choper_down_3
+
+[aes_space_restrictor_sound_0048]
+path = characters_voice\scenario\aes\aes2\aes_enter_battle_1
+play_on_info = aes_enter_battle_sound
+
+[aes_space_restrictor_sound_0049]
+path = characters_voice\scenario\aes\aes2\aes_snipers_out
+play_on_info = aes_sniper_out_sound
+;***************************************************************
+[test3]
+path = messages\multiplayer\artefact_take_enemy
+priority = 2
+group = testgroup1
+
+[test4]
+path = music\bikram1
+priority = 11
+
+
+;***************************************************************
+; Info sounds
+;***************************************************************
+
+[aes_space_restrictor_sound_0053]
+path = anomaly\blowout
+play_on_info = aes_timer_5000
+
+[aes_space_restrictor_sound_0052]
+path = characters_voice\scenario\aes\aes2\aes_blowout_3
+play_on_info = aes_timer_60000
+
+[aes_space_restrictor_sound_0051]
+path = characters_voice\scenario\aes\aes2\aes_blowout_2
+play_on_info = aes_timer_120000
+
+[aes_space_restrictor_sound_0050]
+path = characters_voice\scenario\aes\aes2\aes_blowout_1
+play_on_info = aes_timer_180000
+
+[aes_death_sound_restrictor]
+path = anomaly\blowout
+play_on_info = aes_activate_sound
+
+;***************************************************************
+[test_info1]
+path = characters_voice\scenario\military\pda\mil_pda_4
+play_on_info = mil_scull_message1
+;condition = {+mil_dolg_final_task} true
+;delay_sound = 1500
+callback_func = m_sound.testcb(1,2,data)
+
+[test_info2]
+path = helicopter\hit_
+play_on_info = mil_scull_message2
+callback_func = m_sound.testcb(test_info2)
+
+[test_info3]
+path = music\bikram1
+play_on_info = mil_sniper_payment
+delay_sound = 1500
+callback_func = m_sound.testcb(test_info3)
+
+
+;***************************************************************
+; helicopter sounds
+;***************************************************************
+[heli_attack]
+path = helicopter\atack_
+idle = 10,12,70
+priority = 2
+
+[heli_see_enemy]
+path = helicopter\see_enemy_
+priority = 1
+group = copter_hit_group
+
+[heli_hit]
+path = helicopter\hit_
+priority = 2
+group = copter_hit_group
+
+[heli_damage]
+path = helicopter\damage_
+priority = 3
+
+[heli_death]
+path = helicopter\death_
+priority = 4
+
+
+
+
+
+
+

@@ -1,0 +1,222 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_tasks.script
+ Description:  весты и функции дл€ квестов
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--// Karlan->Karlan: по хорошему под каждый квест нужно писать свою св€зку ивентов и, соотвественно, включать их только на врем€ жизни квеста
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+--//--------------------
+local loaded = false
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-------------------------
+function presets()
+    assert(loaded, 'not init!')
+    
+    event("info_received"):register(proceed_info)
+    event("info_received"):register(proceed)
+    event("item_take"):register(proceed)
+    event("item_drop"):register(proceed)
+    event("update_1st"):register(proceed_1st)
+end
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+--// локальные оболочки дл€ более удобной работы с функци€ми
+local hi = has_info --// bool
+local gi = give_info --// bool
+local di = disable_info --// bool
+local ho = function(s, c) --// bool
+    return actor:has_object(s, c or 1)
+end
+local sm = manager_news.send_message
+local ein = equal_item_name
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Task actions&preconditions
+--//-----------------------------------------------------------------
+--//---------------------------------------------
+--// Storyline&Original functions
+--//---------------------------------------------
+--// Process functions
+function proceed_1st(e)
+    _G.watchdog = make_string('Update is worked is Storyline&Original(%s)', e.delta)
+    give_info_cond(level.name() == "l01_escape", 'storyline_actor_start')
+    gi('global_dialogs')
+end
+function proceed(e)
+	local is_drop = is_number(e.slot)
+--//==============================
+--// escape_tasks.script
+--//==============================
+    if hi('tutorial_artefact_start') and ein(e.item, 'esc_af_medusa') and not is_drop and not hi('tutorial_artefact_done') then gi('tutorial_artefact_gain') end
+	if is_drop and ein(e.item, 'esc_af_medusa') and not hi('tutorial_artefact_done') then di('tutorial_artefact_gain') end --// Karlan: костыль, хот€... :)
+    if hi('tutorial_end') or hi('esc_kill_bandits_quest_done') then gi('esc_path_to_lager') end 
+    if not hi('tutorial_wounded_help') and (hi('tutorial_wounded_die') or hi('tutorial_wounded_death')) then gi('tutorial_wounded_fail') end
+    if ho('esc_wounded_flash') then gi('tutorial_wounded_give_info'); di('esc_trader_direct') end
+    if hi('escape_blockpost_case') and ho('quest_case_01') then gi('escape_blockpost_case_have') end           
+    if hi('escape_stalker_meet') and ho('fox_flash') then gi{'escape_stalker_done', 'garbage_meetstalker_start'} end
+    if hi('escape_blockpost_case') and ho('quest_case_01') then gi('escape_blockpost_case_have') end
+    if hi('esc_kill_bandits_quest_done') then gi('esc_petruha_great') end
+--//==============================
+--// garbage_tasks.script
+--//==============================
+    if hi('garbage_meetstalker_die') and (hi('agr_can_ask_krot_about_gunslinger') or hi('escape_stalker_give')) and not hi('agr_krot_band_start') then gi('agr_krot_band_start'); sm('gar_seryi_info') end
+--//==============================
+--// agroprom_tasks.script
+--//==============================
+    if ho('gunslinger_flash') then gi('agr_find_ghost_start') end
+    if ho("krot_flash") then gi("agr_krot_task_complete") end  --// Karlan: ну может быть, ну когда-нибудь
+--//==============================
+--// darkvalley_tasks.script
+--//==============================
+    if ho('dar_document1') then gi('dar_document1') end
+    if ho('dar_document2') then gi('dar_document2') end
+    if ho('dar_document3') then gi('dar_document3') end
+    if ho('dar_document4') then gi('dar_document4') end
+    if ho('dar_document5') then gi('dar_document5') end
+    if hi('dar_ring_spawn2_1') and hi('dar_ring_spawn2_2') then gi('dar_ring_spawn2') end
+    if hi('dar_password_info1') and not hi('dar_password_info1_know') then gi('dar_password_info1_know'); sm('pass_to_1st_door') end
+    if hi('dar_password_info2') and not hi('dar_password_info2_know') then gi('dar_password_info2_know'); sm('pass_to_2nd_door') end
+--//==============================
+--// bar_rostok_tasks.script
+--//==============================
+    if ho('bar_ecolog_flash') and not hi('bar_ecolog_research_normal') and not hi('bar_ecolog_research_corrupted') then 
+        if hi('bar_rescue_research_corruped') then
+            gi('bar_ecolog_research_corrupted')
+        else
+            gi('bar_ecolog_research_normal')
+        end
+    end
+--//==============================
+--// yantar_tasks.script
+--//==============================
+--//==============================
+--// deadcity_tasks.script
+--//==============================
+    if hi('cit_documents_need') and ho('cit_killers_documents') then give_info('cit_documents_find') end
+    if hi('cit_map_need') and ho('cit_deadcity_maps') then give_info('cit_map_find') end
+--//==============================
+--// mil_tasks.script
+--//==============================
+    if ho('bandit_flash') then gi('mil_bandit_flash_get') end --// Karlan: вот это надо восстановить
+    if ho('ugrum_flash') then gi('mil_ugrum_flash_get') end --// Karlan: вот это надо восстановить
+    if ho('max_flash') then gi('mil_max_owner_flash_get') end --// Karlan: вот это надо восстановить
+--//==============================
+--// radar_tasks.script
+--//==============================
+    if ho('rad_scientist_flash') then gi('rad_code_door') end --// эта флешка дает пароль на код-дур, восстановлено
+--//==============================
+--// pripyat_tasks.script
+--//==============================
+    if ho('decoder') then gi('pri_monolith_decoder_got') end
+    if ho('pri_decoder_documents') then gi('pri_decoder_docs_conclusion_info') end
+end
+--// Task call functions
+--//==============================
+--// escape_tasks.script
+--//==============================
+function task_lager_complete() return hi('escape_lager_help') and hi('escape_lager_killers_die') and (hi('esc_fanat_die') or hi('escape_lager_complete')) end
+function task_fox_complete() return hi('garbage_meetstalker_start') or hi('escape_stalker_done') end
+function kill_tutorial_bandits() return hi('esc_first_novice_dead') and hi('esc_second_novice_dead') end
+function task_volk_fail() return hi('esc_wolf_dead') end
+function petruha_talk() return hi('escape_factory_assault_say_hello') or hi('esc_petruha_great') end
+function is_actor_enemy_lager() return hi('esc_fanat_die') or gulag_is_enemy('esc_lager') end
+--// Presectors ADDs
+function have_tutorial_art() return ho('af_medusa') end --// ну на шару :)
+--//==============================
+--// garbage_tasks.script
+--//==============================
+function task_hellcar_complete() return hi('gar_hellcar_help') and hi('gar_bandits_killed') and (hi('gar_hellcar_death') or hi('gar_hellcar_dialog_end')) end
+function task_hellcar_fail() return (m_gulag.getGulagPopulation('gar_hellcar_group') < 1) or hi('gar_hellcar_death') end
+function task_hellcar_fail2() return (m_gulag.getCasualities('gar_hellcar_group') > 0 and not hi('gar_hellcar_help')) or hi('gar_hellcar_death') end
+--//==============================
+--// agroprom_tasks.script
+--//==============================
+function have_quest_case_02() return ho('quest_case_02') end
+function agr_trader_documents() sm('tips_agr_trader_documents', nil, 'trader') end
+function have_gunslingers_flash() return ho('gunslinger_flash') end
+function ghost_tips() sm('ghost_tips', nil, 'prizrak', 7); gi('agr_gunslinger_flash_have') end
+function agr_actor_enemy()
+    local krot = level.object_by_sid(302)
+    if krot then
+        local killer_id = read_pstor('killer_id', INVALID_ID, krot)
+        return get_npc_relation(krot, actor) == game_object.enemy or (killer_id == actor_id)
+    end
+    return false
+end
+--//==============================
+--// darkvalley_tasks.script
+--//==============================
+function has_darklab_documents() return ho('dar_document4') end
+function escort_task_done() return not hi('val_escort_captive_dead') and hi('val_escort_guard1_dead') and hi('val_escort_guard2_dead') and hi('val_escort_actor_helped') end
+function escort_task_fail() return hi('val_escort_captive_dead') or hi('val_escort_guard1_dead') and hi('val_escort_guard2_dead') and not hi('val_escort_actor_helped') end
+--//==============================
+--// bar_rostok_tasks.script
+--//==============================
+function has_hunter_rifle() return ho('hunters_toz') end
+function has_lucky_pda() return ho('bar_lucky_pda') end
+function has_tiran_pda() return ho('bar_tiran_pda') end
+--//==============================
+--// deadcity_tasks.script
+--//==============================
+function documents_task_fail() return hi('cit_leave_forever') and not ho('cit_killers_documents') end
+function map_task_fail() return hi('cit_leave_forever') and not ho('cit_deadcity_maps') end
+--//==============================
+--// yantar_tasks.script
+--//==============================
+function has_labx16_documents() return ho('lab_x16_documents') and gi{'yantar_find_ghost_task_end', 'yan_x16_documents_gain'} end
+function yan_scientist_task_fail() return hi('yan_scientist_die') and not hi('yan_scientist_return_to_bunker') end
+function yantar_vasilyev_spam() sm('storyline_vasilyev_tip', nil, 'ecolog', nil, 903) end
+--//==============================
+--// mil_tasks.script
+--//==============================
+function mil_task_rg6_have() return ho("wpn_rg-6") end
+function mil_task_crazy_flash_have() if hi('mil_max_job') and ho("crazy_flash") then return gi("mil_max_flash_get") end return false end
+function switch_mutants_online() di("mil_mutants_offline") end
+function fail_rg6_task() return has_any_info_portions{"mil_dolg_after_explode", "mil_cook_dead"} end
+function is_actor_enemy_freedom() return gulag_is_enemy('mil_freedom') end
+function lukash_job_fail() return hi("mil_lukash_dolg_task_fail") or is_actor_enemy_freedom() end
+function max_job_failed() return hi("mil_max_dead") or is_actor_enemy_freedom() end
+function courier_job_failed() return hi("mil_leader_quest2_failed") end
+function fblockpost_job_failed() return hi("mil_fblockpost_quest_fail") or hi("mil_fblockpost_commander_dead") or is_actor_enemy_freedom() end
+function fblockpost_job_failed2() return hi("mil_fblockpost_commander_dead") or is_actor_enemy_freedom() end
+function miser_task_failed() return hi("mil_miser_task_failed") or is_actor_enemy_freedom() end
+function sniper_task_fail() return hi("mil_dolg_dead") or hi("mil_dolg_collected") or is_actor_enemy_dolg() end
+function dolg_task_final() if hi("mil_dolg_dead") then gi("mil_dolg_task_final") return false end return true end
+function final_subtask_dolg4() return hi("mil_lukash_dead") end
+function final_subtask_dolg5() return hi("mil_dolg_task_final") end
+function final_subtask_dolg_main() return hi("mil_lukash_dead") and (hi("mil_dolg_dead") or hi("mil_dolg_task_final")) end
+function dolg_job_fail1() return is_actor_enemy_dolg() end
+function dolg_job_fail2() return is_actor_enemy_dolg() end
+function is_actor_enemy_dolg() return gulag_is_enemy('mil_dolg') end
+function bloodsuckers_dead() return has_info_portions{'mil_bloodsucker1_dead', 'mil_bloodsucker2_dead', 'mil_bloodsucker3_dead', 'mil_bloodsucker4_dead'} end
+
+function proceed_info(e)
+    local info = e.info
+--//==============================
+--// mil_tasks.script
+--//==============================
+    if info == "mil_max_arrive" then di("mil_lukash_go_to_max") end
+--//==============================
+--// agroprom_tasks.script
+--//==============================
+    if info == "agr_krot_secret_info" and not hi("agr_find_gunslinger_cache_start") then gi{'agr_find_gunslinger_cache_start', 'agr_krot_task_complete', 'agr_factory_spawn_spetsnaz'} end
+end
+--//-----------------------------------------------------------------

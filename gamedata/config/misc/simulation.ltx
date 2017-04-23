@@ -1,0 +1,24 @@
+[smart_terrain]
+$spawn           = "ai\smart_terrain"
+class            = SMRTTRRN
+script_binding   = bind_smart_terrain.bind
+
+[smart_terrain_stay_time]
+quick   = 2,  5
+medium  = 6,  8
+long    = 12, 14
+default = 10000, 10001
+
+[respawn]
+$spawn            = "ai\respawn"
+class             = RE_SPAWN
+script_binding    = bind_respawn.bind
+
+[online_offline_group]
+class                 = ON_OFF_S
+
+[sim_faction]
+$spawn             = "ai\DO_NOT_USE"
+class            = SCRIPTZN
+shape_transp_color        = 0, 0, 255, 60
+shape_edge_color        = 32, 32, 32, 255

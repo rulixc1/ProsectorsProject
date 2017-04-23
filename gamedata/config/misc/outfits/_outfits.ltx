@@ -1,0 +1,61 @@
+[sweater_base]
+additional_inventory_weight        = 0        ; +max_walk_weight
+additional_inventory_weight2    = 0        ;    +40 kg
+full_icon_name                    = npc_icon_without_outfit
+
+[without_outfit]:sweater_base
+full_scale_icon            = 6,6 ;--// базовый костюм сталкера - костюм новичка. Обычная одежда туриста - штормовка+сапоги
+
+[outfit_base]:sweater_base
+class                   = E_STLK
+$prefetch               = 32
+cform                   = skeleton
+slot                    = 6
+player_hud_section      = actor_hud_05
+hit_fraction_actor      = 1.0
+
+;--//-----------------------------------------------------------------------------------------
+;--// Karlan->ALL: это загулшка, не удалять, не переносить и не использовать!
+;--//-----------------------------------------------------------------------------------------
+[outfit_template]:outfit_base
+$spawn                       = "outfit\soldier_outfit"
+visual                       = equipments\soldier_suit
+actor_visual                 = actors\hero\stalker_soldier.ogf
+ef_equipment_type            = 0
+inv_name                     = soldier_outfit_name
+inv_name_short               = soldier_outfit_name
+description                  = soldier_outfit_description
+inv_weight                   = 0
+inv_volume                   = 0
+inv_grid_width               = 0
+inv_grid_height              = 0
+inv_grid_x                   = 0
+inv_grid_y                   = 0
+cost                         = 0
+full_icon_name               = npc_icon_specops_outfit
+full_scale_icon              = 0,0
+burn_protection              = 0
+strike_protection            = 0
+shock_protection             = 0
+wound_protection             = 0
+radiation_protection         = 0
+telepatic_protection         = 0
+chemical_burn_protection     = 0
+explosion_protection         = 0
+fire_wound_protection        = 0
+hit_fraction_actor           = 0
+bones_koeff_protection       = actor_armor_medium
+artefact_count               = 0
+control_inertion_factor      = 0
+power_loss                   = 0
+additional_inventory_weight2 = 0
+;--//-----------------------------------------------------------------------------------------
+#include "stalker_outfits.ltx"
+#include "bandit_outfits.ltx"
+#include "killer_outfits.ltx"
+#include "monolit_outfits.ltx"
+#include "military_outfits.ltx"
+#include "svoboda_outfits.ltx"
+#include "dolg_outfits.ltx"
+#include "ecolog_outfits.ltx"
+#include "helmets.ltx"

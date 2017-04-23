@@ -1,0 +1,82 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_ammo.script
+ Description: Операции с боеприпасами
+ Copyright  : 2017 © Prosectors Project
+ Authors    : Karlan & Nazgool
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local ammo_repack = {} --// массив патронов в рюкзаке
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Перепаковка
+--//-----------------------------------------------------------------
+--// Karlan: работает в ~семь раз быстрее (только на апдейте), чем всем известный dunin_ammo.script, сравнивал только с ним, других не знаю
+local function repack_ammo(section, box_size)
+    local cnt = 0
+    local t = {}
+    
+    actor:iterate_inventory(function(actor, item) 
+        if item:section() == section then
+            t[item] = item:id()
+            cnt = cnt + item:get_ammo_box_curr()
+        end
+    end, actor)
+    
+    for item, id in pairs(t) do
+        if cnt == 0 then
+            sim:release(sim:object(id), true)
+        elseif cnt <= box_size then 
+            item:set_ammo_box_curr(cnt)
+            cnt = 0
+        else
+            item:set_ammo_box_curr(box_size)
+            cnt = cnt - box_size
+        end
+    end
+end
+
+local function update_ammo()
+    _G.watchdog = make_string('Update is worked: update_ammo()(%s), last info = %s', delta, last_info) --// DEBUG [!]
+    for section, data in pairs(ammo_repack) do
+        if data.repack then
+            repack_ammo(section, data.bsize)
+            log('update repack sucsess')
+            data.repack = false
+        end
+    end
+    event("actor_update"):unregister(update_ammo)
+end
+
+local function take_ammo(e)
+    local obj = e.item
+    if obj:is_ammo() then
+        local sect, curr, box = obj:section(), obj:get_ammo_box_curr(), obj:get_ammo_box_size()
+        ammo_repack[sect] = {bsize = box, csize = curr}
+        log('take: section=[%s]; box_size = [%s]; current_size = [%s]; id = [%s];', sect, ammo_repack[sect].bsize, ammo_repack[sect].csize, obj:id())
+        if ammo_repack[sect].csize < ammo_repack[sect].bsize then
+            ammo_repack[sect].repack = true
+            log('on repack: section=[%s]; repack = [%s]; id = [%s];', sect, ammo_repack[sect].repack, obj:id())
+            if not event("actor_update"):registered(update_ammo) then --// для взятия кучи патронов
+                event("actor_update"):register(update_ammo)
+            end
+        end
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("item_take"):register(take_ammo)
+    log("init:[>]")
+end
+--//-----------------------------------------------------------------------------------------------

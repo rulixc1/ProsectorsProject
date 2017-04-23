@@ -1,0 +1,375 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_inventory.script
+ Description: Inventory functional
+ Copyright  : 2017 © Prosectors Project
+ Author     : Karlan 
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = true --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local loaded = false
+--//-------------------------
+--// Backpack vars
+local save_sections = {} --// массив для ассоциации для какого тайника какой рюкзак давать при поднятии, по хорошему надо ассоциировать с визуалами, но их нет, а делать можно сказать некому
+local save_bp_volumes = {} --// массив текущих объемов рюкзаков
+local save_bp_names = {} --//
+local box_for_net_spawn = nil --// костыль, потому-что наглухо слетает на уровне экзешника непонятно почему, дебаггер в жопу посылает
+--//-------------------------
+--// Actor weights
+local previous_day = nil --// ser
+local previous_hour = nil --// ser
+local previous_min = nil --// not ser
+local weights_coeff = {
+[global_flags.mcAccel] = 1.875, --// куда-то идем
+[global_flags.mcCrouch] = 0.625, --// куда-то ползем
+[global_flags.mcClimb] = 1.25, --// где-то ползем
+[global_flags.mcSprint] = 3.125, --// куда-то спринтим
+[global_flags.mcJump] = 2.25, --// прыгаем
+[global_flags.mcFall] = 0.25, --// падаем
+[global_flags.mcLanding] = 0.625, --// упали куда-то
+[global_flags.mcLanding2] = 0.625, --// упали в какое-то нехорошее место
+}
+local inc_weight = 0
+local day_multiply = 30
+local day_multiply_safe = 30
+local max_carry_weight = 65
+local w_mask = bit_or(bit_or(bit_or(bit_or(bit_or(global_flags.mcAccel, global_flags.mcCrouch),global_flags.mcClimb),global_flags.mcSprint),global_flags.mcJump),global_flags.mcFall)
+--//-------------------------
+local hud_buff = nil
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// [вспомогательный функционал]:>
+class "CUIWndOK" (CUIScriptWnd) --// CUIMessageBox для кого придумали?
+function CUIWndOK:__init(text, sign) super()
+    sign = is_string(sign) and sign or "ui_frame_error_sign_red" --// ui_frame_error_sign_alarm ui_frame_error_sign_info
+    self:Init(250,300,510,206) --// default: 200,250
+    
+    self.fon = CUIStatic()
+    self.fon:Init(0,0,510,206)
+    self.fon:InitTexture("ui_frame_error")
+    self.fon:SetStretchTexture(true)
+    self:AttachChild(self.fon)
+    
+    self.sign = CUIStatic()
+    self.sign:Init(45,70,77,77) --// default: 35,65
+    self.sign:InitTexture(sign)
+    self.sign:SetStretchTexture(true)
+    self.fon:AttachChild(self.sign)
+    
+    self.text = CUIStatic()
+    self.text:Init(165,43,330,50) --// default: 170,40,310,60
+    self.text:SetTextST(text)
+    self.text:SetFont(GetFontLetterica18Russian())
+    self.text:SetTextColor(255,216,186,140)
+    self.text:SetTextComplexMode(true)
+    self.text:SetTextAlign(0)
+    self.fon:AttachChild(self.text)
+    
+    self.btn = CUI3tButton ()
+    self.btn:Init("ui\\ui_btn_01", 250,140,113,26) --// default: 250,154,117,29 --// 370,154,117,29 --// ui_button_ordinary
+    self.btn:SetText("OK")
+    self.btn:SetFont(GetFontLetterica16Russian())
+    self.btn:SetTextColor(255,216,186,140)
+    self.btn:SetTextY(2) --// default: 0
+    self:Register(self.btn, "btn")
+    self:AddCallback("btn",    ui_events.BUTTON_CLICKED, function(self) self:GetHolder():start_stop_menu(self,true) end,    self)
+    self.fon:AttachChild(self.btn)
+end
+--//---------------------------------------------
+local function show_static(text, pause)
+    local hud = get_hud()
+    local owner = level.main_input_receiver()
+    local qi = get_main_window():GetQuickHelp()
+    if qi then qi:Show(false) end
+    local ss = hud:GetCustomStatic("karlan_info")
+    if not ss then
+        hud:AddCustomStatic("karlan_info")
+        if pause then
+            hud:GetCustomStatic("karlan_info").m_endTime = pause
+        end
+    else
+        ss.m_endTime = time_global()/1000 + 3
+    end
+    hud:GetCustomStatic("karlan_info"):wnd():SetTextST(text)
+    if owner and not owner:IsChild(hud:GetCustomStatic("karlan_info"):wnd()) then
+        owner:AttachChild(hud:GetCustomStatic("karlan_info"):wnd())
+    end
+end
+--// [вспомогательный функционал]:<
+--//-----------------------------------------------------------------
+local function box_spawn(e)
+    if save_sections[e.box_id] then
+        e.box:set_max_box_volume(save_sections[e.box_id].volume)
+    end
+end
+--//------------------------------------------------------------
+local function item_slot(e)
+    if dev.precache_frame > 0 or e.item:get_slot() ~= BACKPACK_SLOT then return end
+    local snd = m_sound.get_safe_sound_object("interface\\inv_take_backpack_"..tostring(math.random(1,2)))
+    local pause = snd:length()/1000
+    show_static("ui_st_taking_backpack", pause*0.9)
+    set_disable_input_time(pause*0.75)
+    if actor:active_item() then set_hide_active_item_time(pause*0.75) end
+    snd:play_no_feedback(actor, sound_object.s2d, 0, vector(), 2.0)
+end
+--//------------------------------------------------------------
+local function item_ruck(e)
+    local bag = actor:item_in_slot(BACKPACK_SLOT)
+    if not bag then return end
+    save_bp_volumes[bag:id()] = bag:get_backpack_volume()
+    if not bag:is_broken() then return end
+    local pause = 2
+    local msg = "ui_st_backpack_broken_msg"
+    if bag:get_backpack_volume() > 0 then --// рюкзак только что порвался
+        local snd = m_sound.get_safe_sound_object("interface\\bp_broken_2")
+        snd:play_no_feedback(actor, sound_object.s2d, 0, vector(), 2.0)
+        msg = "ui_st_backpack_broken"
+        pause = 5
+        bag:set_backpack_volume(0)
+        bag:set_name(bag:get_name() .. ' (изношен)')
+        actor:iterate_inventory(function(actor, actor_object) if actor:is_in_ruck(actor_object) then actor:drop_item(actor_object) end end, actor)
+        save_bp_names[bag:id()] = bag:get_name()
+    end
+    show_static(msg, pause)
+end
+--//------------------------------------------------------------
+local function item_take(e)
+    local item = e.item
+    --//-----------------------------------------------------------------
+    --// CASH
+    --//-----------------------------------------------------------------
+    local cost = item:section():match('^cash_*(%d+)$') --// '^cash_*(%d+)$' | '^cash\_*(%d+)$'
+    if cost then
+        local name, name_s, descr = game.translate_string("item_cash_base_name"), game.translate_string("item_cash_base_short_name"), game.translate_string("item_cash_base_descr")
+        local n,d = cost:match('%d$'), cost:match('(%d)%d$') or 0; n=n+0
+        local suff = tonumber(d)~=1 and ((n==1 and 'рубль') or (n<5 and n>1 and 'рубля') or 'рублей') or 'рублей'
+        item:set_name(string.format(name .. ' (%s ' .. string.lower(suff) .. ')', cost))
+        item:set_name_short(string.format(name_s .. ' (%s р.)', cost))
+        item:set_description(string.format(descr .. ' %s ' .. string.lower(suff) ..'.', cost))
+        item:set_cost(cost)
+    end
+    --//-----------------------------------------------------------------
+end
+--//------------------------------------------------------------
+local function item_drop(e)
+    local item, slot = e.item, e.slot
+    local co = actor:get_current_outfit() or nil
+    if (get_id(co) == item:id()) then
+        actor:iterate_inventory(function(actor, actor_object)
+        if (actor:get_total_ruck_volume()-actor_object:volume()) <= actor:get_total_volume() then
+            return
+        end
+        if actor:is_in_ruck(actor_object) then 
+            actor:drop_item(actor_object)
+        end
+        end, actor)
+    end
+    if (slot==BACKPACK_SLOT) and (item:clsid()==clsid.obj_backpack) and not (has_info("ui_car_body") or has_info("ui_trade")) and item:get_backpack_volume() > 0 then
+        --[[ Karlan->ALL: если рюкзак куда-то не туда провалится, то закомментируйте данный блок, не судьба будет значит
+        local actor_pos = actor:position()
+        local actor_dir = actor:direction()
+        local v_pos = vector.copy(actor_pos.x+actor_dir.x*1.5, actor_pos.y, actor_pos.z+actor_dir.z*1.5)
+        if not actor:accessible(level.vertex_id(v_pos)) then
+            v_pos = vector.rotate_y(v_pos, 90)
+            if not actor:accessible(level.vertex_id(v_pos)) then
+                v_pos = vector.rotate_y(v_pos, -180)
+                if not actor:accessible(level.vertex_id(v_pos)) then
+                    v_pos = actor_pos
+                end
+            end
+        end
+        --]]
+        local box = sim:create("inventory_box_for_backpack", v_pos or actor:position(), actor:level_vertex_id(), actor:game_vertex_id())
+        local se_box = sim:object(box.id)
+        se_box:use_ai_locations(not se_box:used_ai_locations())
+        save_sections[box.id] = {}
+        save_sections[box.id].section = e.section --// тут в стораж надо забивать имя секции (это позволит не плодить тонну секций), но в случае если будут визуалы - убрать
+        save_sections[box.id].volume = item:get_backpack_volume()
+        m_sound.get_safe_sound_object("interface\\inv_drop_backpack"):play_no_feedback(actor, sound_object.s2d, 0, vector(), 2.0)
+        sim:release(sim:object(e.item_id), true)
+        level.client_spawn_manager():add(box.id, 0, function(id,obj)
+                                                        obj:set_max_box_volume(save_sections[obj:id()].volume) --// Karlan: необходимо поставить такой-же объем как у рюкзака
+                                                        actor:iterate_inventory(function(actor, actor_object)
+                                                                                if actor:is_in_ruck(actor_object) then
+                                                                                    actor:transfer_item(actor_object, obj)
+                                                                                end
+                                                                                end, actor)
+                                                    end)        
+    end
+end
+--//------------------------------------------------------------
+local function actor_update_w(e)
+    _G.watchdog = make_string('Update is worked: m_inventory.actor_update_w(%s):~> started', e.delta) --// DEBUG [!]
+    if not is_number(previous_day) then previous_day = level.get_time_days() end
+    if not is_number(previous_hour) then previous_hour = level.get_time_hours() end
+    if not is_number(previous_min) then previous_min = level.get_time_minutes() end
+    if previous_day ~= level.get_time_days() then day_multiply = day_multiply-1 previous_day = level.get_time_days() end
+    if previous_hour ~= level.get_time_hours() then
+        inc_weight = inc_weight/(60*10)
+        inc_weight = inc_weight*(day_multiply/day_multiply_safe)
+        local add = math.clamp(actor:get_actor_max_weight() + inc_weight, 0, max_carry_weight)
+        if add == max_carry_weight then 
+            day_multiply = 0
+            event("actor_update"):unregister(actor_update_w)
+        end
+        log('^result inc_weight = [%1.3f], add = [%1.3f]', inc_weight, add)
+        actor:set_actor_max_weight(add)
+        inc_weight = 0
+        previous_hour = level.get_time_hours()
+    end
+    if previous_min ~= level.get_time_minutes() then
+        local weight_coeff, add = (actor:get_total_weight()/actor:get_max_carry_weight())*10, false
+        if actor:get_state() == 0 or bit_xor(actor:get_state(), global_flags.mcTurn) == 0 then
+            inc_weight = inc_weight+weight_coeff
+        else
+            for k,v in pairs(weights_coeff) do
+                if bit_and(actor:get_state(), w_mask) == k then
+                    local check_move = k == (global_flags.mcJump or global_flags.mcFall or global_flags.mcLanding or global_flags.mcLanding2) and true or bit_and(actor:get_state(), global_flags.mcAnyMove)==1
+                    if check_move then
+                        log('^state coeff = [%s]', v)
+                        inc_weight = inc_weight+v+weight_coeff --// 'вознагражден будет только один' (c)
+                        add = true
+                    end
+                    break --/> сваливаем
+                end
+            end
+            if not add and bit_and(actor:get_state(),global_flags.mcAnyMove) and actor:is_actor_accelerated() then
+                inc_weight = inc_weight+(weights_coeff[global_flags.mcAccel]+1.25)+weight_coeff
+                log('^state coeff = [%s]', weights_coeff[global_flags.mcAccel]+1.25)
+            end
+        end
+        previous_min = level.get_time_minutes() 
+    end
+    _G.watchdog = make_string('Update is worked: m_inventory.actor_update_w(%s):~> complete', e.delta) --// DEBUG [!]
+end
+--//------------------------------------------------------------
+local function rad_static_update(e)
+    --// вывод сообщения о большой радиации
+    if actor:alive() and actor.radiation > 0.8 then
+        if not hud_buff then
+            hud_buff = get_hud()
+            if not hud_buff:GetCustomStatic("cs_radiation_danger") then
+                hud_buff:AddCustomStatic("cs_radiation_danger", true)
+                hud_buff:GetCustomStatic("cs_radiation_danger"):wnd():SetTextST("st_radiation_danger")
+            end
+        end
+    elseif hud_buff then
+        hud_buff:RemoveCustomStatic("cs_radiation_danger")
+        hud_buff = nil
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+--// !!! DON'T DELETE, CALLED FROM ENGINE !!!
+--// так сделать целесообразнее, чем ковырятся наверху, помимо этого придется еще в боксы вводить ассоциацию рюкзака, что излишне, тут ассоциация делается из стора
+function spawn_backpack(box)
+    local bag = actor:item_in_slot(BACKPACK_SLOT)
+    local bag_volume = bag and bag:get_backpack_volume() or 0
+    local box_volume = box:get_total_box_volume() + (sini:r_string(save_sections[box:id()].section, 'inv_volume') or 0) --// Karlan->ALL: запоминать номинальный объем или это слишком упорото? :)
+    if bag and (actor:get_total_volume() < actor:get_total_ruck_volume() + box_volume) then
+        level.start_stop_menu(CUIWndOK(game.translate_string("ui_st_dont_take_backpack")), true)
+        return false
+    else
+        if not bag then
+            local snd = m_sound.get_safe_sound_object("interface\\inv_take_backpack_"..tostring(math.random(1,2)))
+            local pause = snd:length()/1000
+            show_static("ui_st_taking_backpack", pause*0.9)
+            set_disable_input_time(pause*0.75)
+            if actor:active_item() then set_hide_active_item_time(pause*0.75) end
+            snd:play_no_feedback(actor, sound_object.s2d, 0, vector(), 2.0)
+        end
+        sim:create(save_sections[box:id()].section, actor:position(), actor:level_vertex_id(), actor:game_vertex_id(), actor_id)
+        box_for_net_spawn = box:id()
+        return true
+    end
+end
+--//------------------------------------------------------------
+function take_backpack(box)
+    sim:release(sim:object(box:id()))
+    return true 
+end
+--//-----------------------------------------------------------------
+--// микро биндер, может потом что нормальное в голову придет сделать
+function bind_backpack(obj) obj:bind_object(backpack_binder(obj)) end
+class "backpack_binder" (object_binder)
+function backpack_binder:__init(obj) super(obj) end
+function backpack_binder:net_spawn(data)
+    if not object_binder.net_spawn(self, data) then warning("net_spawn:obj=NIL:") return false end
+    -- log("backpack_binder:net_spawn box = [%s]", self.object:name())
+    if save_bp_volumes[self.object:id()] then --// мы перезагрузились
+        self.object:set_backpack_volume(save_bp_volumes[self.object:id()])
+        if save_bp_names[self.object:id()] then self.object:set_name(save_bp_names[self.object:id()]) end
+    elseif box_for_net_spawn and save_sections[box_for_net_spawn] then --// мы подняли рюкзак с земли
+        self.object:set_backpack_volume(save_sections[box_for_net_spawn].volume)
+        box_for_net_spawn = nil
+    end
+    return true
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+local function presets()
+    if not loaded then abort('not init!') end
+    
+    event("item_ruck"):register(item_ruck)
+    event("item_slot"):register(item_slot)
+    event("item_take"):register(item_take)
+    event("item_drop"):register(item_drop)
+    --//------------------------------------
+    event("box_spawn"):register(box_spawn)
+    --//------------------------------------
+    if day_multiply > 0 then 
+        event("actor_update"):register(actor_update_w, {__period = 40000/level.get_time_factor()}) --// опрашиваем примерно один-два раза в игровую минуту, так же предотвращает баг из-за фризов на сохранении/загрузке
+    end
+    --//------------------------------------
+    event("actor_update"):register(rad_static_update, {__period = 1500})
+end
+--//-------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-------------------------
+function save(pk)
+    pk.box_sect = save_sections
+    pk.bp_volume = save_bp_volumes
+    pk.bp_names = save_bp_names
+    pk.previous_hour = previous_hour
+    pk.previous_day = previous_day
+    if day_multiply >= 0 then
+        pk.day_multiply = day_multiply
+        pk.inc_weight = inc_weight
+    end
+end
+--//-------------------------
+function load(pk)
+    save_sections = pk.box_sect
+    save_bp_volumes = pk.bp_volume
+    save_bp_names = pk.bp_names
+    previous_hour = pk.previous_hour
+    previous_day = pk.previous_day
+    day_multiply = pk.day_multiply
+    inc_weight = pk.inc_weight
+end
+--//-----------------------------------------------------------------------------------------------
+function GetCA() return 0 end
+function GetCash() --// оправдано, так как запрашиватся будет крайне редко, и оптимизировать в виде изменения по факту не вижу смысла
+    local cash = 0
+    actor:iterate_inventory(function(_,obj)
+        if obj:section():find('^cash_*(%d+)$') then --// '^cash_*(%d+)$' | '^cash\_*(%d+)$'
+            cash = cash+obj:cost()
+        end
+    end)
+    return cash
+end
+--//-----------------------------------------------------------------------------------------------

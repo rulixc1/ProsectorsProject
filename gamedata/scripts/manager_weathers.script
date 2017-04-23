@@ -1,0 +1,118 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : manager_weathers.script
+ Description: менеджер погоды
+ Copyright  : 2017 © Prosectors Project
+ Author     : Karlan 
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local weather_manager_b = nil
+local cur_weather       = nil
+--//--------------------
+local loaded = false
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    weather_manager_b = nil
+    log('init:[>]')
+end
+--//-------------------------
+function presets()
+    if not loaded then abort('not init!') end
+    
+    get_manager_weather():reset()
+    event("actor_update"):register(update)
+    cur_weather = level.get_weather()
+    level.set_weather("restore_sun", true)
+    game.start_tutorial("restore_sun")
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+function restore_sun()
+    level.set_weather(cur_weather)
+end
+
+class "weather_manager"
+function weather_manager:__init()
+    log("weather_manager:weather_manager()")
+    self.weather_change_day = 0
+    self.update_time        = 0
+    self.current_level      = nil
+    self.previous_level     = nil
+end
+
+function weather_manager:reset()
+    log("weather_manager:reset()")
+    self.current_level = level.name()
+    --// загрузить кондлист с погодой
+    local weather = cfg_get_string(gini, self.current_level, "weathers", actor, false, "", "default")
+    local postprocess = cfg_get_string(gini, self.current_level, "postprocess", actor, false, "")
+    if postprocess then
+        log("LEVEL POSTPROCESS: level: [%s], postprocess: [%s]", self.current_level, postprocess)
+		assert(not level.get_pp_effector(999))
+        level.add_pp_effector(postprocess, 999, true)    
+    else
+        log("LEVEL POSTPROCESS: level: [%s], postprocess: [none]", self.current_level)
+        level.remove_pp_effector(999)
+    end    
+
+    self.weather_list = parse_condlist(weather)
+    
+    if self.previous_level ~= self.current_level then
+        self.previous_level = self.current_level
+        self:select_weather(true)
+    else
+        self:select_weather(false)
+    end
+end
+
+function weather_manager:select_weather(now)
+    self.weather_change_day = level.get_time_days() --// веро€тно предполагалась ежедневна€ смена погодного цикла на уровне, не используетс€, но возможность оставим
+    local weather = xr_logic.pick_section_from_condlist(actor, self.weather_list)
+    log("WEATHER: '%s' now '%s'", weather, tostring(now))
+    level.set_weather(weather, now)
+end
+
+function weather_manager:update()
+    _G.watchdog = make_string('Update is worked: weather_manager:update(%s)', delta)
+    if self.update_time > time_global() then return end
+    log("weather_update day [%s]", level.get_time_days())
+    if self.weather_change_day ~= level.get_time_days() then
+        self:select_weather(false)
+    end
+    self.update_time = time_global() + 60000
+end
+--//  арлан->Team: возможно стоит сделать просто общий флаг о том сменилс€ ли уровень вот дл€ такие поворотов как в этом скрипте? пр€мо в хранилище и не растаскивать по модул€м такую ахинею, пока € так решил, если еще где-то понадобитс€ - введу общий флаг, а отсюда все сохранени€ выброшу
+function weather_manager:save(p)
+    p.previous_level = self.previous_level
+end
+
+function weather_manager:load(p)
+    self.previous_level = p.previous_level
+end
+
+--//-----------------------------------------------------------------
+--// внешний доступ к классу
+--//-----------------------------------------------------------------
+function get_manager_weather()
+    if weather_manager_b == nil then
+        weather_manager_b = weather_manager()
+    end
+    return weather_manager_b
+end
+--//----------
+function save(p) get_manager_weather():save(p) end
+function load(p) get_manager_weather():load(p) end
+function update() get_manager_weather():update() end
+--//-----------------------------------------------------------------------------------------------

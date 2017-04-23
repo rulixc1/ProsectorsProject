@@ -1,0 +1,173 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : manager_particle.script
+ Description: менеджер партиклов
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--// можно еще распределение по коллбекам сделать, чтобы не только под апдейтом играть
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = true --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local loaded = false
+--//--------------------
+local particles_buffer = {}
+--//-----------------------------------------------------------------------------------------------
+--// Class
+--//-----------------------------------------------------------------------------------------------
+class "CParticleManager"
+--//-------------------------
+function CParticleManager:__init(obj)
+    self.object = obj
+    self.m_particles = {} --// particles data
+end
+function CParticleManager:__finalize()
+end
+function CParticleManager:init_internal(data)
+    local buff = {}
+    buff.particle       = particles_object(data.particle)
+    -- buff.particle       = particles_object([[anomaly2\electra_damage_02_smoke]]) --// Karlan: test!
+    buff.position       = data.position
+    buff.direction      = data.direction or vector.zero()
+    buff.orientation    = data.orientation
+    buff.looped         = data.looped or false
+    buff.bone           = data.bone
+    buff.stop_on_death  = data.stop_on_death or false
+    buff.sound          = data.sound and m_sound.get_safe_sound_object(data.sound)
+    buff.sound_looped   = data.sound_looped
+    --//----------
+    buff.start_pos      = vector()
+    buff.last_pos       = vector()
+    buff.start_tm       = time_global()
+    buff.life_tm        = data.life_time or -1
+    buff.is_run         = false
+    buff.is_end         = false
+    table.insert(self.m_particles, buff)
+end
+function CParticleManager:play(data)
+    local position = is_vector(data.position) and data.position or (is_string(data.bone) and self.object:bone_position(data.bone) or self.object:position())
+    if not is_vector(position) then data.is_end = true return end
+    if data.particle:playing() then
+        data.last_pos = data.particle:last_position()
+        if data.last_pos:distance_to(position) > 0.1 then
+            data.last_pos:set(position)
+            data.particle:move_to(vector():set(position), vector.zero())
+            if data.sound and data.sound:playing() then
+                data.sound:set_position(position)
+            end
+        end
+        if data.orientation then
+           data.particle:set_direction(data.orientation)
+        end
+    else
+        if not data.is_run or data.looped then
+            data.is_run = true
+            data.particle:play_at_pos(data.start_pos:set(position))
+            if data.orientation then
+                data.particle:set_direction(data.orientation)
+            end
+            if data.sound then
+                if data.sound_looped and not data.sound:playing() then
+                    data.sound:play_at_pos(actor, position, 1, sound_object.looped)
+                else
+                    data.sound:play_at_pos(actor, position)
+                end
+            end
+        else
+            data.is_end = true
+        end
+    end
+end
+function CParticleManager:stop(data)
+    if data.particle:playing() then
+        data.particle:stop_deffered()
+    end
+    if data.sound and data.sound:playing() then
+        data.sound:stop()
+    end
+end
+function CParticleManager:update(data)
+    if not self.object or not next(self.m_particles) then return end
+    for id,v in ipairs(self.m_particles) do
+        if v.is_end or (v.stop_on_death and not self.object:alive()) then
+            self:stop(v)
+            table.remove(self.m_particles, id)
+        elseif v.life_tm >= 0 and v.start_tm + v.life_tm < time_global() then
+            self:stop(v)
+            table.remove(self.m_particles, id)
+        else
+            self:play(v)
+        end
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Read particle section
+--//-----------------------------------------------------------------
+local function read_particle_section(section, sect)
+    particles_buffer[section] = {}
+    local id, key, value = '','',''
+    for l=0, sini:line_count(sect)-1 do
+        _,id = sini:r_line(sect,l,'','')
+        assert(sini:section_exist(id), 'There is no section [%s] in [%s] section', id, section)
+        particles_buffer[section][id] = {}
+        for i=0, sini:line_count(id)-1 do
+            _,key,value = sini:r_line(id,i,'','')
+            particles_buffer[section][id][key] = value
+        end
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+game_object.get_pm = function(obj)
+    local st = db.storage[obj and obj:id()]
+    if not st then return log("#DBG: object not found in db.storage, obj = <%s>", obj) end
+    if not st.pm then
+        st.pm = CParticleManager(obj)
+    end
+    return st.pm
+end
+--//-----------------------------------------------------------------------------------------------
+--// Callbacks
+--//-----------------------------------------------------------------------------------------------
+local function mob_spawn(e)
+    local section = e.obj:section()
+    local particle_section = READ_IF_EXISTS(sini, 'r_string', section, "particles_sect", nil)
+    if not is_string(particle_section) or not sini:section_exist(particle_section) then return log('#DBG: line particles_sect doesn\'t exist in [%s]', section) end
+    if not particles_buffer[section] then read_particle_section(section, particle_section) end
+    local pm = e.obj:get_pm()
+    if not pm then return end
+    for k,v in pairs(particles_buffer[section]) do
+        assert(v.particle, 'Particle manager error: no particle in section [%s]', k)
+        if e.obj:alive() or not v.stop_on_death then --// Karlan: соблюдая оригинальные традиции, чтобы никого не сдуло :)
+            pm:init_internal(v)
+        end
+    end
+end
+local function mob_update(e)
+    local pm = e.obj:get_pm()
+    if pm then pm:update(e) end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+local function presets()
+    assert(loaded, "not init!")
+    
+    event("mob_spawn"):register(mob_spawn)
+    event("mob_update"):register(mob_update)
+end
+--//-------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-----------------------------------------------------------------------------------------------

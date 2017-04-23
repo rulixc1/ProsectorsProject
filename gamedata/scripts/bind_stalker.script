@@ -1,0 +1,326 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : bind_stalker.script
+ Description: Stalkers binder
+ Copyright  : 2004 © GSC Game World
+ Author     : Диденко Руслан (Stohe)
+ Editors    : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--[[
+порядок вызова методов биндера:
+reload
+reinit
+load
+net_spawn
+]]
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+function init(npc)
+    local new_binder = stalker_binder(npc)
+    npc:bind_object(new_binder)
+end
+--//-----------------------------------------------------------------
+class "stalker_binder" (object_binder)
+--//-----------------------------------------------------------------
+function stalker_binder:__init (obj) super(obj)
+    self.loaded             = false
+    self.first_update       = false
+    self.last_update        = time_global()+math.random(1000)
+    
+    self.obj_id             = obj:id() 
+    self.obj_clsid          = obj:clsid() 
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:reload(section) end
+function stalker_binder:net_save_relevant() return true end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:reinit()
+    --// КОЛЛБЕКИ ЗДЕСЬ СТАВИТЬ НЕЛЬЗЯ! Здесь еще неизвестна активная схема
+    --// Ставьте коллбеки в методе net_spawn/update в отмеченном комментарием месте
+    --//------------------------
+    --// Общие скрипты
+    --//------------------------
+    self.st = { followers = {}, ai = {}, events = {}}
+    setmetatable(self.st.ai,ai_common.get_storage)
+    self.st.planner = self.object:motivation_action_manager()
+    --// Создание менеджера контроля положений тела и менеджера движения по пути
+	if self.object:alive() then
+		self.st.combat_planner = cast_planner(self.st.planner:action(stalker_ids.action_combat_planner))
+		self.st.danger_planner = cast_planner(self.st.planner:action(stalker_ids.action_danger_planner))
+		self.st.state_mgr = state_mgr.bind_manager(self.object,self.st)
+		self.st.move_mgr = manager_move.move_mgr(self.object)
+		self.st.move_mgr:initialize()
+	end
+    db.storage[self.obj_id] = self.st
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:net_spawn(sobject)
+ debug.g_spy:start("stalker_binder:net_spawn")
+    if not object_binder.net_spawn(self, sobject) then
+        warning("net_spawn:NIL")
+ debug.g_spy:finish("stalker_binder:net_spawn")
+        return false
+    end
+    local sobj = alife():object(self.obj_id) --// настоящий серверный объект
+    if not (self.object and sobj) then
+        warning("net_spawn:NPC=[%s/%s],se_obj=NIL", self.object:name(), self.obj_id)
+ debug.g_spy:finish("stalker_binder:net_spawn")
+        return true
+    end
+    log("net_spawn:NPC=<%s>:is_alive=[%s]:[%s]", self.object, self.object.alive and self.object:alive(), ">")
+    --// Все CALLBACK-и ставить здесь:
+    self.object:set_patrol_extrapolate_callback(stalker_binder.extrapolate_callback, self)
+    self.object:set_callback(callback.hit, stalker_binder.hit_callback, self)
+    self.object:set_callback(callback.death, stalker_binder.death_callback, self)
+    self.object:set_callback(callback.trade_perform_operation, stalker_binder.trade_perform_operation, self)
+    self.object:set_callback(callback.trade_terminate_operation, stalker_binder.trade_terminate_operation, self)
+    if not self.loaded then
+        m_info.loadInfo(self.object) --// загрузка историй дл¤ лагер¤.
+    end
+    if not self.object:alive() then
+        event("corpse_spawn"):trigger{obj=self.object,obj_id=self.obj_id,obj_clsid=self.obj_clsid,sobject=sobj,st=self.st,is_stalker=true}
+ debug.g_spy:finish("stalker_binder:net_spawn")
+        return true
+    end
+	if debug_ai then
+		self.object:set_callback(callback.sound, debug_ai.hear_callback, self)
+	end
+    if self.object:character_community() == "zombied" then --// для зомбированных чуваков говорим что аномалий не существует
+        self.st.planner:remove_evaluator   (stalker_ids.property_anomaly)
+        self.st.planner:add_evaluator      (stalker_ids.property_anomaly, property_evaluator_const(false))
+		self.object:get_stalker().feel_anomalies_radius = 0
+    end
+    m_sound.npc_spawn(self.object)  --// загрузка озвучки
+ debug.g_spy:start("stalker_binder:setup_logic")
+    m_gulag.setup_gulag_and_logic_on_spawn(self.object, self.st, sobject, modules.stype_stalker, self.loaded)
+ debug.g_spy:finish("stalker_binder:setup_logic")
+    LOAD_DATA(self.object) --// непись появился, живой или мертвый, получил работу, самое время загрузить его данные
+    -- table.print(db.storage[self.obj_id], "net_spawn:NPC STORAGE=<%s>", self.object)
+    event("npc_spawn"):trigger{obj=self.object,obj_id=self.obj_id,obj_clsid=self.obj_clsid,sobject=sobj,st=self.st,is_stalker=true}
+ debug.g_spy:finish("stalker_binder:net_spawn")
+    return true
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:net_destroy()
+    if not self.object then
+        warning("net_destroy:NPC=NIL")
+        return 
+    elseif self.st then
+        event("npc_destroy"):trigger{obj=self.object,obj_id=self.obj_id,obj_clsid=self.obj_clsid,st=self.st,is_stalker=true,is_alive=self.object:alive()}
+        if self.st.active_scheme then
+            xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "net_destroy", self.object)
+        end
+        SAVE_DATA(self.object)
+        CLEAR_OBJECT(self.object)
+    else
+        warning("net_destroy:NPC=[%s]~Not_Storage", self.object)
+    end
+    db.storage[self.obj_id] = nil
+    self:clear_callbacks()
+    self.object:set_callback(callback.use_object, nil)
+end
+--//------------------------------------------------------
+function stalker_binder:clear_callbacks()
+    self.object:set_patrol_extrapolate_callback(nil)
+    self.object:set_callback(callback.hit, nil)
+    self.object:set_callback(callback.death, nil)
+	self.object:set_callback(callback.sound, nil)
+    self.object:set_callback(callback.trade_perform_operation, nil)
+    self.object:set_callback(callback.trade_terminate_operation, nil)
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:extrapolate_callback(cur_pt)
+    if not self.object then
+        warning("extrapolate_callback:object=NIL, cur_pt=[%s]", cur_pt)
+        return false
+    end
+    if self.st.active_section then
+        xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "extrapolate_callback")
+        self.st.move_mgr:extrapolate_callback(self.object)
+    end
+    local patrol_path = self.object:patrol()
+    if patrol_path and level.patrol_path_exists(patrol_path) then
+        if patrol(self.object:patrol()):flags(cur_pt):get() == 0 then
+            return true
+        end
+    end
+    return false
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:trade_perform_operation(money_get, money_put)
+    log('call stalker_binder:trade_perform_operation %s', time_global())
+    event("trade_perform"):trigger{obj=self.object,obj_id=self.obj_id,money_get=money_get,money_put=money_put,is_stalker=true}
+end 
+function stalker_binder:trade_terminate_operation()
+    log('call stalker_binder:trade_terminate_operation %s', time_global())
+    event("trade_terminate"):trigger{obj=self.object,obj_id=self.obj_id,is_stalker=true}
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:hit_callback(obj, amount, local_direction, who, bone_index, hit_type, weapon_id)
+    if amount>0 then log('[%s] = [%s]:<%s>', obj:name(), HIT_TYPE_BY_ID[hit_type], weapon_id) end --// 11 тип - заглушка
+    -- log('[%s] = a:[%s] ld:[%s] w:[%s] bi:[%s]', obj:name(), amount, local_direction, who, bone_index)
+    if not (self.object and obj) then
+        if amount > 0 then warning("hit_callback:NPC=[%s/%s],Id=[%s],Amount=[%s]<~Who=[%s]:(%s)", self.object and self.object:name(), obj and obj:name(), obj and obj:id(), amount, who and who:name(), self.st) end
+        return
+    end
+    write_pstor('hitter_id', who and get_id(who) or INVALID_ID, obj)
+    if self.st.active_section then
+        xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "hit_callback", obj, amount, local_direction, who, bone_index)
+    end
+    if self.st.combat then
+        xr_logic.issue_event(self.object, self.st.combat, "hit_callback", obj, amount, local_direction, who, bone_index)
+    end
+    if self.st.hit then
+        xr_logic.issue_event(self.object, self.st.hit, "hit_callback", {obj=self.object,obj_id=self.obj_id,st=self.st,victim=obj,amount=amount,dir=local_direction,who=who,bone=bone_index,hit_type=hit_type,weapon_id=weapon_id,is_stalker=true})
+    end
+    if amount > 0 then
+        sr_territory.issue_event(self.object, "hit_callback", obj, amount, local_direction, who, bone_index)
+        ai_common.issue_event(self.st,'hit_callback',amount,local_direction,who,bone_index)
+    end
+    event("npc_hit"):trigger{obj=self.object,obj_id=self.obj_id,st=self.st,victim=obj,amount=amount,dir=local_direction,who=who,bone=bone_index,hit_type=hit_type,weapon_id=weapon_id,is_stalker=true}
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:death_callback(victim, who)
+    local npc = self.object
+    if not (npc and victim) then
+        warning("death_callback:NPC=[%s/%s]<~Killer=[%s]:(%s)", npc and npc:name(), victim and victim:name(), who and who:name(), self.st)
+        return
+    end
+    npc:set_tip_text_default()
+	ai_common.issue_event(self.st,'death_callback',who)
+	self.st.events = nil
+	self.st.combat_planner = nil
+	self.st.danger_planner = nil
+    event("npc_death_st"):trigger{obj=self.object,obj_id=self.obj_id,victim=victim,who=who,st=self.st,is_stalker=true}
+    write_pstor('killer_id', who and get_id(who) or INVALID_ID, victim)
+    -- ai_common.remove_level_spot(npc, self.st)
+    m_ranks.add_kill_count(victim, who) --// on delete [x]
+    if self.st.death then xr_logic.issue_event(npc, self.st.death, "death_callback", {victim = victim, who = who}) end
+    if self.st.active_section then xr_logic.issue_event(npc, self.st[self.st.active_scheme], "death_callback", victim, who) end
+    sr_territory.issue_event(npc, "death_callback", victim, who)
+    se_smart_terrain.on_death(self.obj_id)
+    printf("DEATH_CALLBACK: %s victim=%s who=%s logic=[%s/%s]", npc:name(), victim:name(), tostring(who:name()), logic_section, active_section)
+    self:clear_callbacks()
+--[[    if who then
+        local h = hit()
+        h.draftsman = npc
+        h.type = hit.fire_wound
+        h.direction = who:position():sub(npc:position())
+        h:bone("pelvis")
+        h.power = 1
+        h.impulse = 2
+        npc:hit(h) --// наносим небольшой импульс вперед
+    end]]
+    if actor_stats.remove_from_ranking then
+        local bad_community = {
+            ["zombied"]     = true,
+            ["monolith"]    = true,
+            ["arena_enemy"] = true,
+        }
+        if not bad_community[npc:character_community()] then actor_stats.remove_from_ranking(self.obj_id) end
+    end
+    event("npc_death"):trigger{obj=self.object,obj_id=self.obj_id,victim=victim,who=who,st=self.st,is_stalker=true}
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:use_callback(obj, who)
+    if self.object:alive() then
+--		ai_common.issue_event(self.st,'use_callback',who)
+        ai_common.notify_on_use(obj, who)
+        if self.st.active_section then
+            xr_logic.issue_event(self.object, self.st[self.st.active_scheme], "use_callback", obj, who)
+        end
+        event("npc_living_used"):trigger{obj=self.object,obj_id=self.obj_id,st=self.st,who=who,who_id=who:id(),active_section=self.st.active_section}
+    else
+        manager_treasure:get_manager_treasure():use(self.object)
+        event("npc_corpse_used"):trigger{obj=self.object,obj_id=self.obj_id,st=self.st,who=who,who_id=who and who:id()}
+    end
+    event("npc_used"):trigger{obj=self.object,obj_id=self.obj_id,st=self.st,npc=obj,npc_id=obj:id(),who=who,who_id=who:id(),is_stalker=true}
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:update(delta)
+    if not (self.object and self.st) then
+        warning("update:Object=[%s]", self.object)
+        return
+    end
+    local npc = self.object
+    local npc_id = npc and npc:id()
+    if not sim:object(npc_id) then
+        warning("update:obj=[%s]~not_se_obj:<%s>", npc:name())
+        return
+    elseif not self.st then
+        warning("update:NPC=[%s]=>db.storage[%s]=[NIL]", npc:name(), npc_id)
+    end
+    local is_alive = npc:alive()
+    if not self.first_update then
+        event("npc_1st_update"):trigger{obj=npc,obj_id=npc_id,st=self.st,delta=delta,is_stalker=true}
+        self.object:set_callback(callback.use_object, self.use_callback, self) 
+        if not is_alive then
+            self:clear_callbacks()
+        end        
+        self.first_update = true
+    end
+    sr_teleport.check_teleport(npc)
+    if self.st.state_mgr then
+        if is_alive then
+            self.st.state_mgr:update() --' апдейт менеджера состояний тела
+            if not (self.st.state_mgr.combat and self.st.state_mgr.alife) then
+                if manager_trade._OLD_TRADE_ then manager_trade.update_old(npc) end -- апдейт торговли
+            end
+        else
+            self.st.state_mgr = nil
+        end
+    end
+    if not is_alive then
+        event("npc_corpse_update"):trigger{obj=npc,obj_id=npc_id,st=self.st,delta=delta,is_stalker=true}
+    else
+        if npc:is_talk_enabled() then
+            npc:set_tip_text("character_use")
+        else
+            npc:set_tip_text("")
+        end
+        local t = time_global()
+        if self.last_update < t then
+            self.last_update = t+3100
+            sr_light.check_light(npc,self.st)
+        end
+        m_sound.update(npc,npc_id) --// апдейт звуковой темы объекта
+        event("npc_living_update"):trigger{obj=npc,obj_id=npc_id,st=self.st,delta=delta,is_stalker=true}
+    end
+    event("npc_update"):trigger{obj=npc,obj_id=npc_id,st=self.st,delta=delta,is_stalker=true,is_alive=is_alive}
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:save(packet)
+    if not self.object then 
+        warning("save:object=NIL")
+        return
+    end
+    log("save:STALKER=[%s]:[%s]", self.object, ">")
+    if manager_trade._OLD_TRADE_ then manager_trade.save_old(self.object, packet) end
+    SAVE_OBJECT(self.object)
+    event("npc_save"):trigger{obj=self.object,obj_id=self.obj_id,obj_clsid=self.obj_clsid,packet=packet,is_stalker=true}
+end
+----------------------------------------------------------------------------------------------------------------------
+function stalker_binder:load(reader)
+    if not self.object then
+        warning("load:object=NIL")
+        return
+    end
+    log("load:STALKER=[%s]:[%s]", self.object, ">")
+    self.loaded = true
+    if manager_trade._OLD_TRADE_ and reader:r_eof() then
+        if sim:object(self.object:id()) then
+            abort("load:SAVE_FILE_IS_CORRUPT:Obj=[%s],ID=[%s]", self.object:name(), self.object:id())
+        else
+            warning("load:obj=[%s],ID=[%s]<~se_obj=NIL", self.object:name(), self.object:id())
+        end
+        self.loaded = false
+        return
+    end
+    if manager_trade._OLD_TRADE_ then manager_trade.load_old(self.object, reader) end
+    LOAD_OBJECT(self.object)
+    event("npc_load"):trigger{obj=self.object,obj_id=self.obj_id,packet=reader,is_stalker=true}
+end
+----------------------------------------------------------------------------------------------------------------------

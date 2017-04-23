@@ -1,0 +1,240 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_post_combat_idle.script
+ Description: Экшен ожидания после боя (combat_planner)
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Rulix aka Bak (по материалам GSC)
+ Original   : AI Additions, stalker COP
+--]] ----------------------------------------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+
+local def_min_post_combat_time = 9000
+local def_max_post_combat_time = 11000
+
+class "evaluator_combat_enemy" (property_evaluator)
+function evaluator_combat_enemy:__init(storage, name) super(nil, name)
+	self.st = storage
+	--' Таймер ожидания выхода из боя
+	self.st.timer = time_global()
+end
+function evaluator_combat_enemy:evaluate()
+
+	local best_enemy = self.object:best_enemy()
+	local st = self.st
+
+	-- если появился враг - сбрасываем таймер
+	if best_enemy ~= nil and st.timer ~= nil and not best_enemy:wounded() then
+--		st.last_best_enemy_id = best_enemy:id()
+		st.timer = nil
+		return true
+	end
+
+	-- если исчез враг - устанавливаем таймер
+	if st.timer == nil and (best_enemy == nil or best_enemy:wounded()) then
+		if st.override then
+			local min = st.override[1]*1000
+			local max = st.override[2]*1000
+			st.timer = time_global() + math.random(min, max)
+		else
+			st.timer = time_global() + math.random(def_min_post_combat_time,def_max_post_combat_time)
+		end
+		st.after_wounded = nil
+	end
+
+	if best_enemy ~= nil then
+		return true
+	elseif st.timer == nil then
+		return false
+	end
+
+	if time_global() < st.timer then
+		return true
+	end
+
+	return false	--self.st.anim_started and self.st.animation:state() ~= nil	-- and self.object:animation_count() > 0
+end
+
+----------------------------------------------------------------------------------------------------------------------
+class "action_post_combat_wait" (action_base)
+function action_post_combat_wait:__init(storage, name) super(nil, name)
+	self.st = storage
+end
+function action_post_combat_wait:initialize()
+	action_base.initialize(self)
+	local npc = self.object
+	npc:set_movement_type(move.stand)
+	npc:set_mental_state(anim.danger)
+
+	local wm = npc:get_wm(true)
+	if wm then
+		wm:disable()
+	end
+
+	self.st.animation = db.storage[npc:id()].state_mgr.animation
+
+	if self.st.after_wounded or self.st.after_knife then
+		local target = self.st.target_id and level.object_by_id(self.st.target_id)
+		if target then
+			npc:set_sight(target,true,true)
+		end
+		return
+	end
+
+--	state_mgr.lock(npc,true)
+--	npc:clear_animations()
+	npc:set_dest_level_vertex_id(npc:level_vertex_id())
+	npc:set_item(object.idle,get_current_weapon(npc))
+	self.play_relax_sound = m_sound.set_sound_play(npc,"post_combat_wait")	-- кто первым скажет, тот и главный
+
+	if math.random() > 0.2 then
+		npc:set_sight(look.direction, npc:direction())
+	else
+		npc:set_sight(look.danger, nil, 0)
+	end
+end
+function action_post_combat_wait:execute()
+	action_base.execute(self)
+	local npc = self.object
+
+	if self.st.after_wounded then
+		return
+	elseif self.st.after_knife then
+		if self.st.relax_timer < time_global() then
+			self.st.after_knife = nil
+		end
+		local target = self.st.target_id and level.object_by_id(self.st.target_id)
+		if not target then
+			return
+		end
+		local knife = npc:item_in_slot(KNIFE_SLOT)
+		if target:bone_position("bip01_neck"):distance_to(npc:bone_position("bip01_neck")) < 1.7 then
+			npc:set_item(object.fire1,knife)
+		else
+			npc:set_item(object.aim1,knife)
+		end
+		return
+	end
+
+	if self.st.anim_started == nil then
+		self.st.anim_started = false
+		local rand =  math.random()
+		if rand < 0.15 then
+			self.anim = "caution"
+			npc:set_body_state(move.standing)
+		elseif rand < 0.3 then
+			self.anim = "caution_combat"
+			npc:set_body_state(move.standing)
+		else
+			self.anim = "hide"
+			npc:set_body_state(move.crouch)
+		end
+	elseif self.st.anim_started == false and not weapon_locked(npc) then
+		local wpn = ai_reload and ai_reload.get_weapon_to_reload(npc,true)
+		if wpn and wpn:get_ammo_in_magazine() < 20 then
+			npc:set_item(object.aim_force_full1,wpn)
+			return
+		end
+		npc:set_item(object.idle,get_current_weapon(npc))
+		self.st.anim_started = true
+		self.st.animation:set_state(self.anim)
+	elseif time_global()+500 >= self.st.timer then
+		self.st.animation:set_state(nil)
+		ai_danger.hush(npc,1500)
+--		state_mgr.lock(npc,false)
+	end
+end
+function action_post_combat_wait:finalize()
+	action_base.finalize(self)
+	if self.st.after_wounded or self.st.after_knife then
+		return
+	end
+
+	local npc = self.object
+	if not npc:alive() then
+		self.st.animation = nil
+		return
+	end
+
+	if self.st.anim_started == true then
+		self.st.animation:set_state(nil)
+	end
+
+	local wm = npc:get_wm(true)
+	if wm then
+		wm:enable()
+	end
+
+	local emerg = npc:best_enemy()~=nil or db.storage[npc:id()].danger_flag
+	if self.play_relax_sound and not emerg and self.st.timer and self.st.timer < time_global()+2000 then
+		m_sound.set_sound_play(npc,"post_combat_relax")
+	end
+
+	if emerg then
+		npc:clear_animations()
+	end
+	npc:set_sight(look.danger, nil, 0)
+--	state_mgr.lock(npc,false)
+	self.st.animation = nil
+	self.st.anim_started = nil
+	self.st.target_id = nil
+	self.st.after_knife = nil
+	self.st.relax_timer = nil
+	self.play_relax_sound = nil
+	self.anim = nil
+end
+
+local function _after_wounded(st,target_id)
+	if st.timer == nil then
+		return
+	end
+	st.after_knife = nil
+	local tg = time_global()
+	if st.timer < tg or st.after_wounded then
+		st.after_wounded = true
+		st.timer = tg + math.random(500,2000)
+		st.target_id = target_id
+	elseif st.timer < tg+def_min_post_combat_time*0.3 then
+		st.timer = tg+math.random(def_min_post_combat_time, def_max_post_combat_time)*0.3
+	end
+end
+
+local function _after_knife(st,target_id)
+	if st.timer == nil then
+		return
+	end
+	logc("pause_after_knife target %s",target_id)
+	st.after_knife = true
+	st.relax_timer = time_global() + math.random(1000,2000)
+	st.target_id = target_id
+end
+----------------------------------------------------------------------------------------------------------------------
+-- BINDER
+----------------------------------------------------------------------------------------------------------------------
+function init()
+	event("presets"):register(presets)
+end
+function presets()
+	event("npc_spawn"):register(add_to_binder)
+end
+
+function add_to_binder(t)
+	local manager = t.st.planner
+	local combat_action_planner = t.st.combat_planner
+	local storage = t.st.ai('post_combat')
+	storage.pause_after_wounded = _after_wounded
+	storage.pause_after_knife = _after_knife
+
+	manager:remove_evaluator(stalker_ids.property_enemy)
+	manager:add_evaluator(stalker_ids.property_enemy, evaluator_combat_enemy(storage, "evaluator_combat_enemy"))
+
+	combat_action_planner:remove_evaluator(stalker_ids.property_enemy)
+	combat_action_planner:add_evaluator(stalker_ids.property_enemy, evaluator_combat_enemy(storage, "evaluator_combat_enemy"))
+
+	combat_action_planner:remove_action(stalker_ids.action_post_combat_wait)
+	local new_action = this.action_post_combat_wait(storage, "action_post_combat_wait")
+	new_action:add_precondition(world_property(stalker_ids.property_enemy, true))
+	new_action:add_precondition(world_property(stalker_ids.property_pure_enemy, false))
+	new_action:add_precondition(world_property(stalker_ids.property_critically_wounded, false))
+	new_action:add_precondition(world_property(stalker_ids.property_danger_grenade, false))
+	new_action:add_effect(world_property(stalker_ids.property_enemy, false))
+	combat_action_planner:add_action(stalker_ids.action_post_combat_wait, new_action)
+end

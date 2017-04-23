@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding="windows-1251"?>
+
+<game_information_portions>
+
+    <!-- l12_stancia_2 -->
+	<info_portion id="freeplay"></info_portion> <!-- Karlan: флажок о том, что мы уже во фриплее :) -->
+    
+    <!-- l06_rostok -->
+	<info_portion id="rostok_sniper_sound_played"></info_portion> <!-- Karlan: убираем попугайство наемников -->
+
+</game_information_portions>
+

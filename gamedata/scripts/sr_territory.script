@@ -1,0 +1,72 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : sr_territory.script
+ Description: схема котроля за территорией
+ Copyright  : 200? © GSC Game World
+ Author(s)  : GSC Game World
+ Edited     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local territory = {}
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "action_territory"
+function action_territory:__init(obj, storage)
+    self.object = obj
+    self.st = storage
+end
+function action_territory:update(delta)
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then return end    
+end
+function action_territory:hit_callback(obj, amount, local_direction, who, bone_index)
+    printf("territory hit callback: [%s][%s]", amount, who:name())
+    if who:id() ~= actor_id then
+        return
+    end
+    if obj:relation(actor) == game_object.enemy then
+        return
+    end    
+    xr_logic.pick_section_from_condlist(self.object, self.st.territory_hit, obj, amount, local_direction, who, bone_index)
+end
+function action_territory:death_callback(victim, who)
+    printf("territory death callback: [%s]", victim:name(), who:name())
+    if who:id() ~= actor_id then
+        return
+    end
+    xr_logic.pick_section_from_condlist(self.object, self.st.territory_death, victim, who)
+end
+--//-----------------------------------------------------------------------------------------------
+function issue_event(npc, _type, ...)
+    local arg = {...}
+    for _,v in pairs(territory) do
+        v[_type](v, unpack(arg))
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(obj, ini, scheme, section, storage)
+    local new_action = action_territory(obj, storage)
+    xr_logic.subscribe_action_for_events(obj, storage, new_action)
+    if territory[obj:id()] == nil then
+        territory[obj:id()] = new_action
+    end
+end
+function set_scheme(obj, ini, scheme, section, gulag_name)
+    local st = xr_logic.assign_storage_and_bind(obj, ini, scheme, section)
+    st.logic = xr_logic.cfg_get_switch_conditions(ini, section, obj)
+
+    local tmp = cfg_get_string(ini, section, "territory_hit", "")
+    st.territory_hit = parse_condlist(tmp)
+    tmp = cfg_get_string(ini, section, "territory_death", "")
+    st.territory_death = parse_condlist(tmp)
+end
+--//-----------------------------------------------------------------------------------------------

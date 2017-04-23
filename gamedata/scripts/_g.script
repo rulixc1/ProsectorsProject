@@ -1,0 +1,110 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : _g.script
+ Description: head functions
+ Copyright  : 2004 © GSC Game World
+ Author(s)  : GSC Game World
+ Editor(s)  : Nazgool, Karlan
+--]] ----------------------------------------------------------------------------------------------
+prefetch("lua_injections")
+--//-----------------------------------------------------------------
+schemes, stypes = {}, {}
+function load_scheme(filename, scheme, stype)
+    schemes[scheme] = filename
+    stypes [scheme] = stype
+end
+--//-----------------------------------------------------------------
+--// Tutorials description (called from engine)
+--//-----------------------------------------------------------------
+--// эти туториалы выдаютс€ только в случае "ƒавай как с новичком..."
+function issue_actor_tutorial(tutor, info) if has_info("esc_trader_newbie") then game.start_tutorial(tutor) give_info(info) end end
+--//-------------------------
+function on_actor_critical_power()       issue_actor_tutorial('part_11_weakness',     'encyclopedy_tutorial_weakness')      end --// усталость
+function on_actor_critical_max_power()                                                                                      end --// забавный туториал, но его никто не видел :(
+function on_actor_bleeding()             issue_actor_tutorial('part_8_wound',         'encyclopedy_tutorial_wound')         end --// кровотечение
+function on_actor_satiety()                                                                                                 end --// сытость todo:
+function on_actor_radiation()            issue_actor_tutorial('part_6_radiation',     'encyclopedy_tutorial_radiation')     end --// радиаци€
+function on_actor_weapon_jammed()        issue_actor_tutorial('part_9_weapon',        'encyclopedy_tutorial_weapon')        end --// заклинило оружие (работает по кондиции)
+function on_actor_cant_walk_weight()     issue_actor_tutorial('part_14_overload',     'encyclopedy_tutorial_overload')      end --// не может ходить из-за веса (при нашем подходе не нужен)
+function on_actor_psy()                                                                                                     end --// пси воздействие todo:
+--//-----------------------------------------------------------------
+--// Ќекоторые Is_что-то_там работают еще и тогда когда объектов нет в природе, поэтому без таблиц никак
+--// ѕозитив в том что можно создать общие таблицы соответствий дл€ нескольких модулей, далее их просто копировать куда надо
+--// associative massives for class id //----------------------------
+ammo_sections           = {}
+creatures_clslist       = {}
+monster_classes         = {}
+weapon_blaster_classes  = {}
+local stalker_classes   = {}
+local trader_classes    = {}
+function create_tables()
+    monster_classes = {
+        [clsid.bloodsucker_s]       = "bloodsucker",
+        [clsid.boar_s]              = "boar",
+        [clsid.burer_s]             = "burer",
+        [clsid.cat_s]               = "cat",
+        [clsid.chimera_s]           = "chimera",
+        [clsid.controller_s]        = "controller",
+        [clsid.dog_s]               = "dog",
+        [clsid.flesh_s]             = "flesh",
+        [clsid.fracture_s]          = "fracture",
+        [clsid.gigant_s]            = "pseudo_gigant",
+        [clsid.poltergeist_s]       = "poltergeist",
+        [clsid.pseudodog_s]         = "pseudodog",
+        [clsid.psy_dog_phantom_s]   = "psy_dog_phantom", 
+        [clsid.psy_dog_s]           = "psy_dog",
+        [clsid.snork_s]             = "snork",
+        [clsid.tushkano_s]          = "tushkano",
+        [clsid.zombie_s]            = "zombie",
+    }
+    stalker_classes = {
+        [clsid.stalker]             = "stalker?",
+        [clsid.script_stalker]      = "stalker",
+        [clsid.actor]               = "actor",
+    }
+    trader_classes  = {
+        [clsid.trader]              = true,
+        [clsid.script_trader]       = true,
+    }
+    ammo_sections = {
+        ["ammo_9x18_fmj"]           = true,
+        ["ammo_11.43x23_hydro"]     = true,
+        ["ammo_7.62x54_7h14"]       = true,
+        ["ammo_11.43x23_fmj"]       = true,
+        ["ammo_7.62x54_ap"]         = true,
+        ["ammo_7.62x54_7h1"]        = true,
+        ["ammo_5.45x39_ap"]         = true,
+        ["ammo_9x39_pab9"]          = true,
+        ["ammo_5.56x45_ss190"]      = true,
+        ["ammo_5.45x39_fmj"]        = true,
+        ["ammo_9x19_fmj"]           = true,
+        ["ammo_9x39_sp5"]           = true,
+        ["ammo_9x19_pbp"]           = true,
+        ["ammo_9x18_pmm"]           = true,
+        ["ammo_gauss"]              = true,
+        ["ammo_9x39_ap"]            = true,
+        ["ammo_12x70_buck"]         = true,
+        ["ammo_12x76_zhekan"]       = true,
+        ["ammo_5.56x45_ap"]         = true,
+        ["ammo_12x76_dart"]         = true,
+    }
+    weapon_blaster_classes  = {
+		[clsid.wpn_rg6_s] 			= true,
+		[clsid.wpn_rpg7_s] 			= true,
+    }
+    creatures_clslist = table.merge(monster_classes,stalker_classes)
+end
+--// CHECK OBJECTS //------------------------------------------------
+IsMonster   = function(object, class_id)    return monster_classes[class_id or get_clsid(object) or -1] ~= nil end
+IsStalker   = function(object, class_id)    return stalker_classes[class_id or get_clsid(object) or -1] ~= nil end
+IsTrader    = function(object, class_id)    return trader_classes[class_id or get_clsid(object) or -1] == true end
+IsHuman     = function(object, class_id)    return IsStalker(object, class_id) or IsTrader(object, class_id) end
+IsWeapon    = function(object)              return object and object:is_weapon() and not object:name():find('binoc') end
+IsQuestItem = function(object)              return object and get_flag(object, global_flags.FIsQuestItem) end
+--//-----------------------------------------------------------------
+--// запускаем игру...
+function start_game_callback()
+    sim, dev, watchdog = alife(), device(), nil
+    create_tables()
+    m_events.start()
+end 
+---------------------------------------------------------------------

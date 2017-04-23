@@ -1,0 +1,246 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : m_monsters.script
+ Description: Различные функции и классы дополняющие монстров
+ Copyright  : 2017 © Prosectors Project
+ Author     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = true --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Variables
+--//-----------------------------------------------------------------------------------------------
+local loaded = false
+--//--------------------
+local phantom_count = 0 --// количество фантомов на уровне
+local actor_hit_functions = {}
+local monster_hit_functions = {}
+local monster_update_functions = {}
+local parts_data = { --// умное выпадение частей, psy_dog_phantom_s не надо, это глюкопес
+    [clsid.bloodsucker_s] = {{count = 1, section = "mutant_krovosos_jaw", bones = {[14] = true, [17] = true, [18] = true, [19] = true, [21] = true, [22] = true, [23] = true, [25] = true, [26] = true, [27] = true, [29] = true, [30] = true, [31] = true,}}},
+    [clsid.boar_s] = {{count = 4, section = "mutant_boar_leg", bones = {[3] = true, [4] = true, [8] = true, [9] = true, [34] = true, [35] = true, [39] = true, [40] = true,}}},
+    [clsid.burer_s] = { --// здесь идея в том, что по лапе на каждую кисть
+    {count = 1, section = "mutant_burer_hand$1", bones = {[20] = true, [21] = true, [22] = true, [23] = true, [24] = true, [25] = true, [26] = true, [27] = true, [28] = true,}},
+    {count = 1, section = "mutant_burer_hand$2", bones = {[33] = true, [34] = true, [35] = true, [36] = true, [37] = true, [38] = true, [39] = true, [40] = true, [41] = true,}},
+    },
+    [clsid.cat_s] = {{count = 1, section = "mutant_cat_tail", bones = {[28] = true, [29] = true, [30] = true,}}},
+    [clsid.chimera_s] = { --// тут вообще судя по модели 16 ногтей должно быть, так и сделал, но количество уменьшил, а то жирно, и снимать по когтю будем за каждую кость, ибо нефиг!
+    {count = 8, section = "mutant_chimera_claw", bones = {[6] = true, [11] = true, [24] = true, [25] = true, [26] = true, [27] = true, [28] = true, [29] = true, [30] = true, [34] = true, [35] = true, [36] = true, [37] = true, [38] = true, [39] = true, [40] = true,}}
+    },
+    [clsid.controller_s] = {
+    {count = 1, section = "mutant_controller_brain", bones = {[15] = true, [16] = true, [17] = true, [18] = true, [19] = true,}},
+    {count = 1, section = "mutant_controller_token", bones = {[13] = true, [14] = true,}},
+    },
+    [clsid.dog_s] = {{count = 1, section = "mutant_dog_tail", bones = {[29] = true, [30] = true, [31] = true, [0] = true,}}},
+    [clsid.flesh_s] = {{count = 1, section = "mutant_flesh_eye", bones = {[13] = true,}}},
+    [clsid.fracture_s] = {{count = 1, section = "mutant_fracture_pda", bones = {[10] = true, [11] = true, [12] = true,}}},
+    [clsid.gigant_s] = {{count = 1, section = "mutant_pseudogigant_hand", bones = {[40] = true, [41] = true,}}},
+    [clsid.poltergeist_s] = {
+    {count = 1, section = "mutant_poltergeist_eye$1", bones = {[7] = true, [8] = true,}},
+    {count = 1, section = "mutant_poltergeist_eye$2", bones = {[9] = true, [10] = true,}},
+    },
+    [clsid.pseudodog_s] = {{count = 1, section = "mutant_psevdodog_tail", bones = {[32] = true, [33] = true, [0] = true,}}},
+    [clsid.psy_dog_s] = {{count = 1, section = "mutant_psevdodog_tail", bones = {[32] = true, [33] = true, [0] = true,}}},
+    [clsid.snork_s] = {
+    {count = 1, section = "mutant_snork_leg$1", bones = {[2] = true, [3] = true, [4] = true,}},
+    {count = 1, section = "mutant_snork_leg$2", bones = {[7] = true, [8] = true, [9] = true,}},
+    },
+    [clsid.tushkano_s] = {{count = 1, section = "mutant_tushkano_face", bones = {[26] = true, [27] = true, [28] = true, [29] = true, [30] = true, [31] = true, [32] = true, [33] = true, [34]= true, [35] = true, [36] = true, [37] = true,}}},
+    [clsid.zombie_s] = {
+    {count = 1, section = "mutant_zombie_hand$1", bones = {[21] = true, [22] = true, [23] = true, [24] = true, [25] = true, [26] = true, [27] = true, [28] = true, [29] = true,}},
+    {count = 1, section = "mutant_zombie_hand$2", bones = {[33] = true, [34] = true, [35] = true, [36] = true, [37] = true, [38] = true, [39] = true, [40] = true, [41] = true,}},
+    },
+}
+local chimera_charge_time = 0
+local bloodsucker_anomaly_time = 0
+local bloodsucker_anomaly_exist = false
+--//-----------------------------------------------------------------------------------------------
+--// Local functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Monster living update
+--//-----------------------------------------------------------------
+monster_update_functions[clsid.bloodsucker_s] = function(data)
+    local obj = data.obj
+    if not obj:section():find('fire') then return end
+    if not obj:get_invisible() then obj:set_invisible(true) end --// Karlan: из двух зол выбрал то, что проще сделать :)
+    if bloodsucker_anomaly_time > time_global() or bloodsucker_anomaly_exist then return end
+    local enemy = obj:best_enemy()
+    if enemy and (obj:position():distance_to(enemy:position()) < 4) then
+        bloodsucker_anomaly_time = time_global() + 4000
+        local sobj = sim:create_anomaly('zone_zharka_static_weak', obj:position(), obj:level_vertex_id(), obj:game_vertex_id(), 4)
+        anom_clean_trigger(sobj.id):set_delay(math.random(6,8)):start()
+    end
+end
+local function mob_living_update(e)
+    local class = get_clsid(e.obj)
+    if is_callable(monster_update_functions[class]) then
+        monster_update_functions[class](e)
+    end
+end
+--//-----------------------------------------------------------------
+--// Monster death
+--//-----------------------------------------------------------------
+--// Karlan->ALL: здесь лучше было бы посадить спавн на юз трупа, но в таком случае если непись захочет пошарить в монстре, то нифига там не найдет, поэтому спавним сразу
+local function mob_death(e)
+    local victim = e.victim
+    local stor = read_pstor('parts_data', nil, victim)
+    remove_pstor('parts_data', victim)
+    if is_table(stor) then
+        for k,v in pairs(stor) do
+            if v > 0 then create(k:gsub('$%d',''),v,victim) end
+        end
+    else
+        local class = get_clsid(victim)
+        local part_data = parts_data[class]
+        if not is_table(part_data) then return end
+        for i=1, #part_data do
+            create(part_data[i].section:gsub('$%d',''),part_data[i].count,victim)
+        end
+    end
+end
+--//-----------------------------------------------------------------
+--// Monster got hit
+--//-----------------------------------------------------------------
+monster_hit_functions[clsid.chimera_s] = function(data)
+    if not data.victim:alive() then return end
+    if not data.victim:section():find('electro') then return end
+    if chimera_charge_time > time_global() then return end
+    chimera_charge_time = time_global() + 5000
+    local sobj = create(data.victim,false,'chimera_blaster')
+    level.client_spawn_manager():add(sobj.id, 0, function(id,obj) obj:explode() end)
+end
+local function mob_hit(e)
+    local victim = e.victim
+    local class = get_clsid(victim)
+    local part_data = parts_data[class]
+    if not is_table(part_data) then return warning('Monster [%s] doesnt parts data, clsid = %s', victim, clsid_table[class]) end
+    for i=1, #part_data do
+        if part_data[i].bones[e.bone] then
+            if victim:alive() then
+                local stor = read_pstor('parts_data', nil, victim)
+                if not is_table(stor) then stor = {} end
+                stor[part_data[i].section] = is_number(stor[part_data[i].section]) and stor[part_data[i].section]-1 or part_data[i].count-1
+                write_pstor('parts_data', stor, victim)
+            else
+                local part = victim:object(part_data[i].section)
+                local spart = is_userdata(part) and sim:object(part:id())
+                if is_userdata(spart) then sim:release(spart) end
+            end
+        end
+    end
+    if is_callable(monster_hit_functions[class]) then
+        monster_hit_functions[class](e)
+    end
+end
+--//-----------------------------------------------------------------
+--// Actor got hit
+--//-----------------------------------------------------------------
+actor_hit_functions[clsid.boar_s] = function(data)
+    local amount = data.amount
+    if amount < 0.3 then return end
+    level.add_cam_effector('camera_effects\\shell_shock.anm', prosectors_effects_ids.boar_shock, false)
+    if amount < 0.5 then return end
+    if math.random() < 0.35 then actor.power = -0.2 end
+    if amount < 0.75 then return end
+    local active_item = actor:active_item()
+    local slot = active_item and (active_item:get_slot() < 6)
+    if slot then actor:drop_item(active_item) if math.random() < 0.15 then set_disable_input_time(math.random(3)) end end
+end
+local function actor_hit(e)
+    local who = e.who
+    local class = get_clsid(who)
+    if not who or not IsMonster(_,class) then return end
+    if is_callable(actor_hit_functions[class]) then
+        actor_hit_functions[class](e)
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Global functions
+--//-----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Anomaly clean trigger
+--//-----------------------------------------------------------------
+class "anom_clean_trigger" (m_timers.savable_timer)
+function anom_clean_trigger:__init(id) super()
+    self._class = script_name()..".anom_clean_trigger"
+    self.id = id
+    bloodsucker_anomaly_exist = true
+end
+function anom_clean_trigger:load(packet) self.id = packet:r_u16() bloodsucker_anomaly_exist = true end
+function anom_clean_trigger:save(packet) packet:w_u16(self.id) end
+function anom_clean_trigger:taction() sim:release(sim:object(self.id)) bloodsucker_anomaly_exist = false end
+--//-----------------------------------------------------------------
+--// Управление фантомами (from phantom_manager.script)
+--//-----------------------------------------------------------------
+function bind(obj)
+    local new_binder = phantom_binder(obj)
+    obj:bind_object(new_binder)
+end
+function spawn_phantom(pos) 
+    level.spawn_phantom(pos) 
+    phantom_count = phantom_count + 1
+end
+class "phantom_binder" (object_binder)
+function phantom_binder:__init(obj) super(obj) end
+function phantom_binder:net_destroy() phantom_count = phantom_count - 1 end
+function get_phantom_count() return phantom_count end
+--//-----------------------------------------------------------------
+--// Управление стейтом кровососа (from mob_state_mgr.script)
+--//-----------------------------------------------------------------
+function get_state(ini, section, obj)
+    local state  = cfg_get_string(ini, section, "state", obj, false, "", "")
+    return state ~= "" and state
+end
+function set_state(obj, state)
+    if not state then
+        return
+    end
+    local obj_clsid = get_clsid(obj)
+    printf("m_monsters <set_state>: [%s].clsid = %s, state = %s", obj:name(), tostring(obj_clsid), state)
+    if obj_clsid == clsid.bloodsucker_s then
+        if state == "invis" then
+            obj:set_invisible(true)
+            return
+        elseif state == "vis" then
+            obj:set_invisible(false)
+            return
+        end
+    else
+        if state == "" then --[[у неопознанных монстров пустая строка ("") является допустимым (заодно и дефолтным) состоянием]] return end
+    end
+    abort("set_state: object '%s': unknown state '%s' requested", obj:name(), state)
+end
+--//-----------------------------------------------------------------
+--// Установка паники для активной схемы (from mob_panic.script)
+--//-----------------------------------------------------------------
+function reset_panic(obj, scheme, st, section)
+    local panic_threshold = cfg_get_number(st.ini, section, "panic")
+    if panic_threshold then
+        obj:set_custom_panic_threshold(panic_threshold)
+    else 
+        obj:set_default_panic_threshold()
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Initialization module
+--//-----------------------------------------------------------------------------------------------
+local function presets()
+    assert(loaded, "not init!")
+    --//---------------------
+    event("actor_hit"):register(actor_hit)
+    event("mob_hit"):register(mob_hit)
+    event("mob_death"):register(mob_death)
+    event("mob_spawn"):register(mob_spawn)
+    event("mob_living_update"):register(mob_living_update)
+end
+--//-------------------------
+function init()
+    event("presets"):register(presets)
+    loaded = true
+    log('init:[>]')
+end
+--//-----------------------------------------------------------------------------------------------

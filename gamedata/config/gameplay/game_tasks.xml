@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding="windows-1251"?>
+<game_tasks_data>
+#include "gameplay\tasks\tasks_escape.xml"
+#include "gameplay\tasks\tasks_garbage.xml"
+#include "gameplay\tasks\tasks_agroprom.xml"
+#include "gameplay\tasks\tasks_bar.xml"
+#include "gameplay\tasks\tasks_military.xml"
+#include "gameplay\tasks\tasks_darkvalley.xml"
+#include "gameplay\tasks\tasks_deadcity.xml"
+#include "gameplay\tasks\tasks_radar.xml"
+#include "gameplay\tasks\tasks_aes.xml"
+#include "gameplay\tasks\tasks_yantar.xml"
+#include "gameplay\tasks\tasks_sarcofag.xml"
+#include "gameplay\tasks\game_tasks_by_vendor.xml"
+</game_tasks_data>

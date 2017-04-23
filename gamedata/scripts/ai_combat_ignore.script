@@ -1,0 +1,109 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ai_combat_ignore.script
+ Description: Игнорирование врагов
+ Copyright  : 2017 © Prosectors Project
+ Author(s)  : Rulix (по материалам GSC)
+--]] ----------------------------------------------------------------------------------------------
+
+-- // Игнорируется ли враг
+function is_ignored(obj,enemy)
+	local st = db.storage[obj:id()].combat_ignore
+	return st.enabled and st.ignore[enemy:id()] == true
+end
+
+-- // Проверить игнорирование объекта
+function check_ignore(obj,enemy)
+	local stor = db.storage[obj:id()]
+	local st = stor.combat_ignore
+	if not st.enabled then
+		return false
+	end
+	if st.ignore[enemy:id()] ~= nil then
+		return st.ignore[enemy:id()]
+	end
+	stor.enemy = enemy
+	if st.cond and xr_logic.pick_section_from_condlist(obj, st.cond.condlist) ~= nil then
+		return true
+	end
+end
+
+local function is_enemy(obj, enemy, st)
+
+--	if obj:critically_wounded() then
+--		return true
+--	end
+
+	if not st.enabled then
+		return true
+	end
+
+--	if st.cond then
+		db.storage[obj:id()].enemy = enemy
+		if xr_logic.pick_section_from_condlist(obj, st.cond.condlist) ~= nil then
+			obj:enable_memory_object(enemy, false)
+			st.ignore[enemy:id()] = true
+			return false
+		end
+--	end
+
+	st.ignore[enemy:id()] = false
+	return true
+end
+----------------------------------------------------------------------------------------------------------------------
+
+class "action_process_enemy"
+
+function action_process_enemy:__init(obj, storage)
+	self.object = obj
+	self.st = storage
+end
+
+function action_process_enemy:enemy_callback(obj, enemy)
+	return is_enemy(obj, enemy, self.st)
+end
+
+function action_process_enemy:hit_callback(amount, dir, who)
+	if self.st.enabled and who and who:is_actor() and not self.st.keep_when_attacked then
+		self.st.enabled = false
+	end
+end
+
+----------------------------------------------------------------------------------------------------------------------
+-- binder
+----------------------------------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+	storage.action = action_process_enemy(npc, storage)
+end
+
+function set_scheme(npc)
+	xr_logic.assign_storage_and_bind(npc,nil,'combat_ignore')
+end
+
+function reset_scheme(npc, scheme, st, section)
+	local condlist	= xr_logic.cfg_get_condlist(st.ini, section, "combat_ignore_cond", npc)
+--	logc("reset_scheme[%s]alive %s section %s",npc:name(),npc:alive(),section)
+	if not condlist then
+		disable_scheme(npc,st)
+		return
+	end
+	local storage				= st.combat_ignore
+	storage.cond				= condlist
+	storage.enabled				= true
+	storage.ignore				= {}
+	storage.keep_when_attacked	= cfg_get_bool(st.ini, section, "combat_ignore_keep_when_attacked")
+
+	ai_common.subscribe_for_events(npc:id(),storage.action)
+	npc:set_enemy_callback(storage.action.enemy_callback, storage.action)
+end
+
+function disable_scheme(npc, st)
+	st = st.combat_ignore
+--	logc("disable_scheme[%s]alive %s st %s",npc:name(),npc:alive(),not not st)
+	if not st then
+		return
+	end
+	st.enabled = false
+	st.ignore = nil
+	ai_common.unsubscribe_from_events(npc:id(),st.action)
+	npc:set_enemy_callback()
+end

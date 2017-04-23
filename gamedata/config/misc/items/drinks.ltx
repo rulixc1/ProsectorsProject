@@ -1,0 +1,49 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; DRINKS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+[drink_base]:eatable_item
+class                   = II_BOTTL
+use_sound               = interface\inv_softdrink
+attach_angle_offset     = 0.000000, 0.000000, 0.000000
+attach_position_offset  = 0.087266, -0.078540, 0.052360
+attach_bone_name        = bip01_r_hand
+detach_on_death_prb     = 0.6
+position_offset         = 0.0,0.0,0.0
+angle_offset            = 1.570790,1.570790,3.92699
+break_particles         = explosions\explosion_bottle ; todo: make particles and sounds for tin
+break_sound             = material\bottle\collide\bottle_break_1
+
+[vodka]:drink_base
+$spawn                  = "food and drugs\vodka"
+visual                  = weapons\vodka\vodka
+inv_name                = Vodka
+inv_name_short          = Vodka
+description             = enc_equipment_food_vodka1
+inv_grid_x              = 20
+inv_grid_y              = 4
+cost                    = 100
+inv_weight              = 0.5
+inv_volume              = 0.66
+
+boost_time              = 5.0
+boost_radiation_restore = 0.005
+eat_alcohol             = 0.2
+eat_satiety             = -0.2
+eat_psy_health          = 0.4
+
+use_sound               = interface\inv_vodka
+
+[energy_drink]:drink_base
+$spawn                  = "food and drugs\energy_drink"
+visual                  = equipments\drink_nonstop.ogf
+inv_name                = energy_drink_name
+inv_name_short          = energy_drink_short_name
+description             = enc_equipment_energydrink
+inv_grid_x              = 21
+inv_grid_y              = 4 
+cost                    = 75
+inv_weight              = 0.5
+inv_volume              = 0.52
+
+boost_time              = 60.0
+boost_power_restore     = 0.005

@@ -1,0 +1,110 @@
+;--//-----------------------------------------------------------------------------------------
+;--//    Легкий костюм Свободы
+;--//-----------------------------------------------------------------------------------------
+[svoboda_light_outfit]:outfit_base
+$spawn             = "outfit\svoboda_light_outfit"
+visual          = equipments\svoboda_light_suit
+actor_visual    = actors\hero\stalker_svoboda_light.ogf
+
+ef_equipment_type    = 3
+
+inv_name            = svoboda_light_outfit_name
+inv_name_short        = svoboda_light_outfit_name
+description            = svoboda_light_outfit_description
+inv_weight            = 3.0
+inv_volume            = 4.5
+inv_grid_width        = 2
+inv_grid_height        = 3
+inv_grid_x            = 12
+inv_grid_y            = 13
+full_icon_name        = npc_icon_svoboda_light_outfit
+
+cost                = 10000
+full_scale_icon        = 10,11            ;иконка сталкера в костюме в полный рост
+
+immunities_sect            = sect_svoboda_light_outfit_immunities
+
+burn_protection                 = 0.3
+strike_protection                 = 0.5
+shock_protection                 = 0.5
+wound_protection                = 0.3
+radiation_protection             = 0.5
+telepatic_protection             = 0.0
+chemical_burn_protection         = 0.5
+explosion_protection             = 0.25
+fire_wound_protection              = 0.3
+
+control_inertion_factor = 1.1
+power_loss             = 0.7
+artefact_count          = 3
+hit_fraction_actor                = 0.8
+bones_koeff_protection             = actor_armor_dolg_light
+additional_inventory_weight2    = 10
+
+[sect_svoboda_light_outfit_immunities]
+burn_immunity                = 0.12
+strike_immunity                = 0.06
+shock_immunity                = 0.1
+wound_immunity                = 0.05
+radiation_immunity            = 0.00
+telepatic_immunity            = 0.00
+chemical_burn_immunity        = 0.06
+explosion_immunity            = 0.12
+fire_wound_immunity            = 0.05
+;--//-----------------------------------------------------------------------------------------
+;--//-----------------------------------------------------------------------------------------
+;--//    Тяжелый костюм Свободы
+;--//-----------------------------------------------------------------------------------------
+[svoboda_heavy_outfit]:outfit_base
+$spawn             = "outfit\svoboda_heavy_outfit"
+visual          = equipments\svoboda_heavy_suit
+actor_visual    = actors\hero\stalker_svoboda_light.ogf
+
+ef_equipment_type    = 3
+
+inv_name            = svoboda_heavy_outfit_name
+inv_name_short        = svoboda_heavy_outfit_name
+description            = svoboda_heavy_outfit_description
+inv_weight            = 6.0
+inv_volume            = 7
+inv_grid_width        = 2
+inv_grid_height        = 3
+inv_grid_x            = 8
+inv_grid_y            = 15
+full_icon_name        = npc_icon_svoboda_heavy_outfit
+nightvision_sect    = effector_nightvision_bad
+
+cost                = 12500
+full_scale_icon        = 2,6            ;иконка сталкера в костюме в полный рост
+
+immunities_sect            = sect_svoboda_heavy_outfit_immunities
+
+; MEDIUM RESISTANCE
+burn_protection                 = 0.5
+strike_protection                 = 0.6
+shock_protection                 = 0.5
+wound_protection                = 0.5
+radiation_protection             = 0.5
+telepatic_protection             = 0.0
+chemical_burn_protection         = 0.5
+explosion_protection             = 0.45
+fire_wound_protection              = 0.4
+
+control_inertion_factor = 1.2
+power_loss             = 0.9
+artefact_count          = 4
+hit_fraction_actor                = 0.6
+bones_koeff_protection             = actor_armor_heavy
+additional_inventory_weight2    = 15
+
+[sect_svoboda_heavy_outfit_immunities]
+burn_immunity                = 0.12
+strike_immunity                = 0.06
+shock_immunity                = 0.1
+wound_immunity                = 0.05
+radiation_immunity            = 0.00
+telepatic_immunity            = 0.00
+chemical_burn_immunity        = 0.06
+explosion_immunity            = 0.12
+fire_wound_immunity            = 0.05
+;--//-----------------------------------------------------------------------------------------

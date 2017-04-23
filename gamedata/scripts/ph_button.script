@@ -1,0 +1,71 @@
+--[[ ----------------------------------------------------------------------------------------------
+ File       : ph_button.script
+ Description: button
+ Copyright  : 2005 © GSC Game World
+ Author(s)  : Andrey Fidrya (Zmey) af@svitonline.com
+ Edited     : Karlan
+--]] ----------------------------------------------------------------------------------------------
+--//-----------------------------------------------------------------
+--// Flags for enable output of the debug information
+--//-----------------------------------------------------------------
+_DEBUG_ = false --// file under debugging?
+_DEBUG_GSC_ = _DEBUG_ and false --// only for scripts by GSC
+--//-----------------------------------------------------------------
+--//-----------------------------------------------------------------------------------------------
+--// Actions
+--//-----------------------------------------------------------------------------------------------
+class "ph_button"
+function ph_button:__init(obj, storage)
+    self.object = obj
+    self.st = storage
+end
+function ph_button:reset_scheme()
+    self.object:play_cycle(self.st.anim, self.st.blending)
+    self.last_hit_tm = 0
+end
+function ph_button:update(delta)
+    if xr_logic.try_switch_to_another_section(self.object, self.st) then
+        return
+    end
+end
+function ph_button:try_switch()
+    self.object:set_tip_text(self.st.tooltip)
+    local st = db.storage[self.object:id()]
+    if st.active_scheme and st.active_scheme == "ph_button" and self.st.on_press then
+        if xr_logic.switch_to_section(self.object, self.st, xr_logic.pick_section_from_condlist(self.object, self.st.on_press.condlist)) then
+            return true
+        end
+    end
+    return false
+end
+function ph_button:hit_callback(obj, amount, local_direction, who, bone_index)
+    if not self.st.hit_reaction then return end
+    if self.last_hit_tm > time_global() then return end
+    if self:try_switch() then return end
+    self.last_hit_tm = time_global() + self.st.hit_pause
+    return
+end
+function ph_button:use_callback(victim, who)
+    if self:try_switch() then
+        return
+    end
+end
+--//-----------------------------------------------------------------------------------------------
+--// Binder
+--//-----------------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, scheme, section, storage)
+    xr_logic.subscribe_action_for_events(npc, storage, ph_button(npc, storage))
+end
+function set_scheme(npc, ini, scheme, section, gulag_name)
+    local st = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+    st.logic    = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+    
+    st.on_press = xr_logic.cfg_get_condlist(ini, section, "on_press", npc)
+    st.tooltip  = cfg_get_string(ini, section, "tooltip", "")
+    npc:set_tip_text(st.tooltip)
+    st.anim     = cfg_get_string(ini, section, "anim", npc, true, "")
+    st.blending = cfg_get_bool(ini, section, "anim_blend", true)
+    st.hit_reaction = cfg_get_bool(ini, section, "hit_reaction", false)
+    st.hit_pause = cfg_get_number(ini, section, "hit_pause", 500)
+end
+--//-----------------------------------------------------------------------------------------------

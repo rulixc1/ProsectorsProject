@@ -1,0 +1,197 @@
+[monster_part_base]:inventory_item_object ; Karlan: это абстрактная секция!
+script_binding      = m_items.bind_eat
+inv_name            = MonsterPartBaseName
+inv_name_short      = MonsterPartBaseNameShort
+description         = MonsterPartBaseDescription
+inv_grid_y          = 2 ; Karlan: иконки будем укладывать рядами, чтобы была возможность быстрой массовой замены (добавление нового ряда из-за большого количества видов)
+cond_dec            = 0
+
+[mutant_flesh_eye]:monster_part_base
+$spawn              = "devices\monster_items\mutant_flesh_eye"
+visual              = equipments\item_flesh_eye.ogf
+inv_name            = mutant_flesh_eye
+inv_name_short      = mutant_flesh_eye
+description         = mutant_flesh_eye_description
+inv_weight          = 0.1
+inv_volume          = 0.2
+inv_grid_x          = 20
+cost                = 300
+cond_dec            = 8
+
+[mutant_boar_leg]:monster_part_base
+$spawn              = "devices\monster_items\mutant_boar_leg"
+visual              = equipments\item_boar_leg.ogf
+inv_name            = mutant_boar_leg
+inv_name_short      = mutant_boar_leg
+description         = mutant_boar_leg_description
+inv_weight          = 0.4
+inv_volume          = 0.3
+inv_grid_x          = 21
+cost                = 800
+cond_dec            = 36
+
+[mutant_dog_tail]:monster_part_base
+$spawn              = "devices\monster_items\mutant_dog_tail"
+visual              = equipments\item_dog_tail.ogf
+inv_name            = mutant_dog_tail
+inv_name_short      = mutant_dog_tail
+description         = mutant_dog_tail_description
+inv_weight          = 0.2
+inv_volume          = 0.2
+inv_grid_x          = 22
+cost                = 500
+cond_dec            = 18
+
+[mutant_psevdodog_tail]:monster_part_base
+$spawn              = "devices\monster_items\mutant_psevdodog_tail"
+visual              = equipments\item_psevdodog_tail.ogf
+inv_name            = mutant_psevdodog_tail
+inv_name_short      = mutant_psevdodog_tail
+description         = mutant_psevdodog_tail_description
+inv_weight          = 0.2
+inv_volume          = 0.3
+inv_grid_x          = 23
+cost                = 1500
+cond_dec            = 22
+
+[mutant_krovosos_jaw]:monster_part_base
+$spawn              = "devices\monster_items\mutant_krovosos_jaw"
+visual              = equipments\item_krovosos_jaw.ogf
+inv_name            = mutant_krovosos_jaw
+inv_name_short      = mutant_krovosos_jaw
+description         = mutant_krovosos_jaw_description
+inv_weight          = 0.2
+inv_volume          = 0.2
+inv_grid_x          = 24
+cost                = 3000
+cond_dec            = 10
+
+[mutant_burer_hand]:monster_part_base
+$spawn              = "devices\monster_items\mutant_burer_hand"
+visual              = equipments\item_burer_hand.ogf
+inv_name            = mutant_burer_hand
+inv_name_short      = mutant_burer_hand
+description         = mutant_burer_hand_description
+inv_weight          = 0.5
+inv_volume          = 0.3
+inv_grid_x          = 25
+cost                = 2000
+cond_dec            = 24
+
+[mutant_zombie_hand]:monster_part_base
+$spawn              = "devices\monster_items\mutant_zombie_hand"
+visual              = equipments\item_zombie_hand.ogf
+inv_name            = mutant_zombie_hand
+inv_name_short      = mutant_zombie_hand
+description         = mutant_zombie_hand_description
+inv_weight          = 0.4
+inv_volume          = 0.3
+inv_grid_x          = 26
+cost                = 300
+cond_dec            = 32
+
+[mutant_snork_leg]:monster_part_base
+$spawn              = "devices\monster_items\mutant_snork_leg"
+visual              = equipments\item_snork_leg.ogf
+inv_name            = mutant_snork_leg
+inv_name_short      = mutant_snork_leg
+description         = mutant_snork_leg_description
+inv_weight          = 1.0
+inv_volume          = 0.3
+inv_grid_x          = 27
+cost                = 1100
+cond_dec            = 48
+
+[mutant_tushkano_face]:monster_part_base
+$spawn              = "devices\monster_items\mutant_tushkano_face"
+visual              = equipments\item_tushkano_face.ogf
+inv_name            = mutant_tushkano_face
+inv_name_short      = mutant_tushkano_face
+description         = mutant_tushkano_face_description
+inv_weight          = 0.2
+inv_volume          = 0.2
+inv_grid_x          = 28
+cost                = 250
+cond_dec            = 24
+
+[mutant_poltergeist_eye]:monster_part_base
+$spawn              = "devices\monster_items\mutant_poltergeist_eye"
+visual              = equipments\item_poltergeist_eye.ogf
+inv_name            = mutant_poltergeist_eye
+inv_name_short      = mutant_poltergeist_eye
+description         = mutant_poltergeist_eye_description
+inv_weight          = 0.1
+inv_volume          = 0.05
+inv_grid_x          = 29
+cost                = 800
+cond_dec            = 8
+
+[mutant_chimera_claw]:monster_part_base
+$spawn              = "devices\monster_items\mutant_chimera_claw"
+visual              = equipments\item_chimera_claw.ogf
+inv_name            = mutant_chimera_claw
+inv_name_short      = mutant_chimera_claw
+description         = mutant_chimera_claw_description
+inv_weight          = 0.1
+inv_volume          = 0.15
+inv_grid_x          = 30
+cost                = 1000
+cond_dec            = 144
+
+[mutant_fracture_pda]:monster_part_base
+$spawn              = "devices\monster_items\mutant_fracture_pda"
+visual              = equipments\item_datchik2.ogf
+inv_name            = mutant_fracture_pda
+inv_name_short      = mutant_fracture_pda
+description         = mutant_fracture_pda_description
+inv_weight          = 0.25
+inv_volume          = 0.1
+inv_grid_x          = 31
+cost                = 500
+
+[mutant_controller_brain]:monster_part_base
+$spawn              = "devices\monster_items\mutant_controller_brain"
+visual              = equipments\item_datchik2.ogf
+inv_name            = mutant_controller_brain
+inv_name_short      = mutant_controller_brain
+description         = mutant_controller_brain_description
+inv_weight          = 1.6
+inv_volume          = 1
+inv_grid_x          = 32
+cost                = 10000
+cond_dec            = 24
+
+[mutant_controller_token]:monster_part_base
+$spawn              = "devices\monster_items\mutant_controller_token"
+visual              = equipments\item_datchik2.ogf
+inv_name            = mutant_controller_token
+inv_name_short      = mutant_controller_token
+description         = mutant_controller_token_description
+inv_weight          = 0.1
+inv_volume          = 0.05
+inv_grid_x          = 33
+cost                = 500
+
+[mutant_pseudogigant_hand]:monster_part_base
+$spawn              = "devices\monster_items\mutant_pseudogigant_hand"
+visual              = equipments\item_pseudogigant_hand.ogf
+inv_name            = mutant_pseudogigant_hand
+inv_name_short      = mutant_pseudogigant_hand
+description         = mutant_pseudogigant_hand_description
+inv_weight          = 4
+inv_volume          = 5
+inv_grid_x          = 34
+cost                = 5000
+cond_dec            = 48
+
+[mutant_cat_tail]:monster_part_base
+$spawn              = "devices\monster_items\mutant_cat_tail"
+visual              = equipments\item_cat_tail.ogf
+inv_name            = mutant_cat_tail
+inv_name_short      = mutant_cat_tail
+description         = mutant_cat_tail_description
+inv_weight          = 0.2
+inv_volume          = 0.2
+inv_grid_x          = 35
+cost                = 400
+cond_dec            = 48
